@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+    <div>
+        <h2 class="text-3xl font-bold text-white">
+            {% if view_mode == 'archive' %}
+            🗄️ Erledigte Tickets (Archiv)
+            {% else %}
+            🔥 Offene Tickets
+            {% endif %}
+        </h2>
+        <div class="text-gray-400 text-sm mt-1">
+            {{ tickets|length }} Tickets angezeigt
+        </div>
+    </div>
+
+    <!-- View Switcher -->
+    <div class="flex bg-neutral-800 rounded-lg p-1 border border-gray-700">
+        <a href="/dashboard"
+            class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'open' %}bg-audible-accent text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
+            Offen
+        </a>
+        <a href="/archive"
+            class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'archive' %}bg-white/20 text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
+            Erledigt
+        </a>
+    </div>
+</div>
+
+<div class="glass rounded-2xl overflow-hidden border border-white/5 shadow-2xl">
+    <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+            <thead>
+                <tr class="bg-white/5 text-gray-400 text-sm uppercase tracking-wider">
+                    <th class="p-4 font-medium border-b border-gray-700">ID</th>
+                    <th class="p-4 font-medium border-b border-gray-700">
+                        {% if view_mode == 'open' %}
+                        <a href="{{ url_for('dashboard', sort='desc' if sort_order == 'asc' else 'asc') }}"
+                            class="group/sort flex items-center gap-1 hover:text-white transition cursor-pointer">
+                            Deadline
+                            <span class="text-gray-600 group-hover/sort:text-gray-400">
+                                {% if sort_order == 'desc' %}▼{% else %}▲{% endif %}
+                            </span>
+                        </a>
+                        {% else %}
+                        Deadline
+                        {% endif %}
+                    </th>
+                    <th class="p-4 font-medium border-b border-gray-700">Wer</th>
+                    <th class="p-4 font-medium border-b border-gray-700">ISBN / Titel</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Problem</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Portale</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Beschreibung</th>
+                    <th class="p-4 font-medium border-b border-gray-700 w-32">Aktionen</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800 text-sm">
+                {% for ticket in tickets %}
+                <tr class="hover:bg-white/5 transition group">
+                    <td class="p-4 text-gray-500 font-mono">#{{ ticket.id }}</td>
+                    <td
+                        class="p-4 font-medium whitespace-nowrap
+                        {% if ticket.deadline and ticket.deadline < now and view_mode == 'open' %}text-red-400{% else %}text-gray-300{% endif %}">
+                        {% if view_mode == 'archive' and ticket.completion_date %}
+                        <span class="text-green-500" title="Erledigt am">🏁 {{ ticket.completion_date }}</span>
+                        {% else %}
+                        {{ ticket.deadline }}
+                        {% endif %}
+                    </td>
+                    <td class="p-4 text-white font-medium">
+                        {{ ticket.created_by if ticket.created_by else '-' }}
+                    </td>
+                    <td class="p-4 max-w-xs">
+                        <div class="font-bold text-white truncate" title="{{ ticket.title }}">{{ ticket.title }}</div>
+                        {% if ticket.author %}
+                        <div class="text-gray-400 text-xs truncate mb-0.5" title="{{ ticket.author }}">{{ ticket.author
+                            }}</div>
+                        {% endif %}
+                        <div class="text-gray-500 font-mono text-xs">{{ ticket.isbn }}</div>
+                    </td>
+                    <td class="p-4">
+                        <span
+                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
+                            {{ ticket.problem_type }}
+                        </span>
+                    </td>
+                    <td class="p-4 max-w-xs">
+                        {% if ticket.affected_portals %}
+                        <div class="flex flex-wrap gap-1">
+                            {% for portal in ticket.affected_portals.split(',') %}
+                            <span
+                                class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-neutral-800 text-gray-400 border border-gray-700">
+                                {{ portal.strip() }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <span class="text-gray-600">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="p-4 max-w-lg text-gray-400 text-sm leading-relaxed align-top">
+                        <div onclick="this.classList.toggle('line-clamp-3')"
+                            class="line-clamp-3 cursor-pointer hover:text-gray-200 transition"
+                            title="Klicken zum Ausklappen/Einklappen">
+                            {{ ticket.description | format_comments }}
+                        </div>
+                    </td>
+                    <td class="p-4">
+                        <div
+                            class="flex items-center gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition">
+
+                            {% if view_mode == 'open' %}
+                            <!-- Erledigt Button -->
+                            <form action="/ticket/{{ ticket.id }}/complete" method="POST"
+                                onsubmit="return confirm('Ticket als erledigt markieren?');">
+                                <button type="submit"
+                                    class="p-2 bg-green-900/30 text-green-400 rounded hover:bg-green-500 hover:text-white transition"
+                                    title="Erledigt">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            {% if admin_mode %}
+                            <a href="{{ url_for('edit_ticket', id=ticket.id) }}"
+                                class="p-2 text-gray-400 rounded hover:bg-gray-700 hover:text-white transition"
+                                title="Bearbeiten">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                            </a>
+                            {% endif %}
+
+                            {% if view_mode == 'archive' %}
+                            <!-- Wiedereröffnen Button -->
+                            <form action="/ticket/{{ ticket.id }}/reopen" method="POST"
+                                onsubmit="return confirm('Ticket wieder in OFFEN verschieben?');">
+                                <button type="submit"
+                                    class="p-2 bg-blue-900/30 text-blue-400 rounded hover:bg-blue-500 hover:text-white transition"
+                                    title="Wiedereröffnen">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                    </svg>
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            <!-- Löschen Button -->
+                            <form action="/ticket/{{ ticket.id }}/delete" method="POST"
+                                onsubmit="return confirm('Wirklich löschen?');">
+                                <button type="submit"
+                                    class="p-2 bg-red-900/30 text-red-400 rounded hover:bg-red-500 hover:text-white transition"
+                                    title="Löschen">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="p-12 text-center text-gray-500">
+                        Keine offenen Tickets. Zeit für einen Kaffee! ☕
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

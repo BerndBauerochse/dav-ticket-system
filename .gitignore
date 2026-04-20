@@ -1,0 +1,16 @@
+# Daten & Secrets – niemals ins Repo!
+data/
+*.db
+*.sqlite
+config.json
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Backup
+backup/

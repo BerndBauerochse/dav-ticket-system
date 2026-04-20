@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center h-[70vh]">
+    <div class="text-center mb-12">
+        <h1 class="text-5xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500">
+            Willkommen
+        </h1>
+        <p class="text-xl text-gray-400">Wähle deinen Bereich</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl w-full">
+        <!-- Card 1: Ticket Creator -->
+        <a href="/new-ticket"
+            class="group relative block glass rounded-2xl p-8 hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-audible-accent/20 border border-white/5">
+            <div class="absolute top-4 right-4 text-gray-500 group-hover:text-audible-accent transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold mb-2 group-hover:text-audible-accent transition">Ticket melden</h2>
+            <p class="text-gray-400">Erstelle neue Tickets für Preisänderungen, Metadaten-Updates oder Cover-Fehler.</p>
+        </a>
+
+        <!-- Card 2: Dashboard -->
+        <a href="/dashboard"
+            class="group relative block glass rounded-2xl p-8 hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/20 border border-white/5">
+            <div class="absolute top-4 right-4 text-gray-500 group-hover:text-blue-400 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold mb-2 group-hover:text-blue-400 transition">Dashboard</h2>
+            <p class="text-gray-400">Markiere offene Tickets als erledigt und behalte den Überblick.</p>
+        </a>
+    </div>
+</div>
+{% endblock %}

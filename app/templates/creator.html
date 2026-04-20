@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto glass rounded-xl p-5 border border-white/5 shadow-2xl">
+    <div class="mb-4 border-b border-gray-700 pb-2 flex justify-between items-end">
+        <h2 class="text-2xl font-bold text-white">Neues Ticket</h2>
+        <span class="text-xs text-gray-500">Kompaktansicht</span>
+    </div>
+
+    <form method="POST" action="/new-ticket" class="space-y-4">
+
+        <!-- OBERE ZEILE: 4 Spalten Layout -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+
+            <!-- 1. ISBN -->
+            <div class="space-y-1">
+                <label for="isbn" class="block text-xs font-medium text-gray-400 uppercase">ISBN / EAN</label>
+                <div class="relative">
+                    <input type="text" id="isbn" name="isbn" required autocomplete="off"
+                        class="w-full bg-neutral-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-audible-accent focus:border-audible-accent transition placeholder-gray-600"
+                        placeholder="9783..." oninput="checkIsbn(this.value)">
+                    <div id="isbn-spinner" class="absolute right-2 top-2 hidden">
+                        <svg class="animate-spin h-4 w-4 text-audible-accent" xmlns="http://www.w3.org/2000/svg"
+                            fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                            </circle>
+                            <path class="opacity-75" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div id="isbn-feedback" class="text-xs mt-0.5 h-4 truncate"></div>
+            </div>
+
+            <!-- 2. Problem Typ -->
+            <div class="space-y-1">
+                <label for="problem_type" class="block text-xs font-medium text-gray-400 uppercase">Problemtyp</label>
+                <select id="problem_type" name="problem_type"
+                    class="w-full bg-neutral-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-audible-accent focus:border-audible-accent transition">
+                    <option value="Preisänderung">Preisänderung</option>
+                    <option value="Titel nicht online">Titel nicht online</option>
+                    <option value="Audioanpassung">Audioanpassung</option>
+                    <option value="Rezension löschen">Rezension löschen</option>
+                    <option value="Cover Austausch">Cover Austausch</option>
+                    <option value="Meldung nicht online">Meldung nicht online</option>
+                    <option value="Metadaten ändern">Metadaten ändern</option>
+                    <option value="Takedown">Takedown</option>
+                    <option value="TOC fehlt">TOC fehlt</option>
+                    <option value="Sonstiges">Sonstiges</option>
+                </select>
+            </div>
+
+            <!-- 3. Datum -->
+            <div class="space-y-1">
+                <label for="initial_contact_date"
+                    class="block text-xs font-medium text-gray-400 uppercase">Erstkontakt</label>
+                <input type="date" id="initial_contact_date" name="initial_contact_date" value="{{ today }}"
+                    class="w-full bg-neutral-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-audible-accent focus:border-audible-accent transition">
+            </div>
+
+            <!-- 4. Erstellt von -->
+            <div class="space-y-1">
+                <label for="created_by" class="block text-xs font-medium text-gray-400 uppercase">Erstellt von</label>
+                <select id="created_by" name="created_by" required
+                    class="w-full bg-neutral-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-audible-accent focus:border-audible-accent transition appearance-none text-gray-300 invalid:text-gray-500">
+                    <option value="" disabled selected>Bitte wählen...</option>
+                    <option value="Arlts">Arlts</option>
+                    <option value="Asiedu">Asiedu</option>
+                    <option value="Avemark">Avemark</option>
+                    <option value="Bauerochse">Bauerochse</option>
+                    <option value="Brugger">Brugger</option>
+                    <option value="Danielmeyer">Danielmeyer</option>
+                    <option value="Eiselt">Eiselt</option>
+                    <option value="Engel">Engel</option>
+                    <option value="Gerlach">Gerlach</option>
+                    <option value="Götz">Götz</option>
+                    <option value="Hanke">Hanke</option>
+                    <option value="Hoff">Hoff</option>
+                    <option value="Kaufmann">Kaufmann</option>
+                    <option value="Lang">Lang</option>
+                    <option value="Machulik">Machulik</option>
+                    <option value="Scholz">Scholz</option>
+                    <option value="Wind">Wind</option>
+                    <option value="Wurm">Wurm</option>
+                    <option value="Zauber">Zauber</option>
+                    <option value="Zlatareva">Zlatareva</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- UNTERE SEKTION: Split Portale / Beschreibung -->
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+
+            <!-- Portale (Links, ca. 40%) -->
+            <div class="md:col-span-5 space-y-1">
+                <label class="block text-xs font-medium text-gray-400 uppercase mb-1">Portale</label>
+                <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                    {% for portal in ['Audible', 'Spotify', 'Thalia', 'BookBeat', 'Apple', 'Google', 'DAV', 'Divibib',
+                    'RTL+'] %}
+                    <label
+                        class="inline-flex items-center space-x-2 cursor-pointer bg-neutral-800/50 hover:bg-neutral-800 p-1.5 rounded border border-gray-800 hover:border-gray-600 transition">
+                        <input type="checkbox" name="portals" value="{{ portal }}"
+                            class="form-checkbox h-3.5 w-3.5 text-audible-accent rounded border-gray-600 focus:ring-0 focus:ring-offset-0 bg-neutral-900">
+                        <span class="text-gray-300 text-xs select-none">{{ portal }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Beschreibung (Rechts, ca. 60%) -->
+            <div class="md:col-span-7 space-y-1 flex flex-col">
+                <label for="description" class="block text-xs font-medium text-gray-400 uppercase">Beschreibung</label>
+                <textarea id="description" name="description"
+                    class="w-full flex-grow bg-neutral-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-audible-accent focus:border-audible-accent transition placeholder-gray-600 resize-none min-h-[120px]"
+                    placeholder="Details zum Problem..."></textarea>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="pt-2 flex justify-end">
+            <button type="submit"
+                class="bg-audible-accent hover:bg-audible-hover text-white font-bold py-2 px-8 rounded shadow-lg transition transform hover:scale-105">
+                Ticket anlegen
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    let timeout = null;
+    const feedback = document.getElementById('isbn-feedback');
+    const spinner = document.getElementById('isbn-spinner');
+
+    function checkIsbn(isbn) {
+        // Bindestriche entfernen und Feld aktualisieren
+        const inputField = document.getElementById('isbn');
+        if (isbn.includes('-')) {
+            const cleanIsbn = isbn.replace(/-/g, '');
+            inputField.value = cleanIsbn;
+            isbn = cleanIsbn; // Mit bereinigtem Wert weitermachen
+        }
+
+        clearTimeout(timeout);
+        feedback.innerText = '';
+        spinner.classList.add('hidden');
+
+        if (isbn.length < 8) return;
+
+        spinner.classList.remove('hidden');
+
+        timeout = setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/metadata/${isbn}`);
+                const data = await response.json();
+
+                spinner.classList.add('hidden');
+
+                if (data.found) {
+                    feedback.innerHTML = `<span class="text-green-400 flex items-center gap-1 overflow-hidden whitespace-nowrap text-ellipsis">✅ ${data.title}</span>`;
+                } else {
+                    feedback.innerHTML = `<span class="text-yellow-500 flex items-center gap-1">⚠️ Nicht gefunden</span>`;
+                }
+            } catch (e) {
+                console.error(e);
+                spinner.classList.add('hidden');
+            }
+        }, 500);
+    }
+</script>
+{% endblock %}

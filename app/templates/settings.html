@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto glass rounded-2xl p-8 border border-white/5 shadow-2xl mt-10">
+    <div class="mb-8 border-b border-gray-700 pb-4 flex justify-between items-center">
+        <div>
+            <h2 class="text-3xl font-bold text-white">Einstellungen</h2>
+            <p class="text-gray-400 mt-2">Konfiguration der Web-Anwendung. Bitte nicht verändern, wenn du nicht weißt,
+                was du tust.</p>
+        </div>
+        <a href="/" class="text-gray-400 hover:text-white transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </a>
+    </div>
+
+    <form method="POST" action="/settings" class="space-y-6">
+
+        <!-- Datenbank Pfad -->
+        <div class="space-y-2">
+            <label for="database_path" class="block text-sm font-medium text-gray-300">Pfad zur Datenbank
+                (tickets.db)</label>
+            <p class="text-xs text-gray-500 mb-2">Relativer Pfad (startet mit ./) oder absoluter Pfad (z.B.
+                V:/Ticket_db/tickets.db).</p>
+            <div class="flex gap-2">
+                <input type="text" id="database_path" name="database_path"
+                    value="{{ config.get('database_path', './tickets.db') }}"
+                    class="w-full bg-neutral-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-audible-accent focus:border-transparent transition font-mono text-sm">
+            </div>
+        </div>
+
+        <!-- Metadaten Ordner -->
+        <div class="space-y-2">
+            <label for="metadata_folder" class="block text-sm font-medium text-gray-300">Metadaten Ordner</label>
+            <input type="text" id="metadata_folder" name="metadata_folder"
+                value="{{ config.get('metadata_folder', './Titeldaten') }}"
+                class="w-full bg-neutral-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-audible-accent focus:border-transparent transition font-mono text-sm">
+        </div>
+
+        <!-- Teams Webhook -->
+        <div class="space-y-2">
+            <label for="teams_webhook" class="block text-sm font-medium text-gray-300">Microsoft Teams Webhook</label>
+            <input type="text" id="teams_webhook" name="teams_webhook" value="{{ config.get('teams_webhook', '') }}"
+                placeholder="https://..."
+                class="w-full bg-neutral-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-audible-accent focus:border-transparent transition font-mono text-sm">
+        </div>
+
+        <!-- Metadata Webhook (n8n) -->
+        <div class="space-y-2">
+            <label for="metadata_webhook_url" class="block text-sm font-medium text-gray-300">Metadaten Webhook
+                (n8n)</label>
+            <input type="text" id="metadata_webhook_url" name="metadata_webhook_url"
+                value="{{ config.get('metadata_webhook_url', '') }}" placeholder="https://n8n..."
+                class="w-full bg-neutral-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-audible-accent focus:border-transparent transition font-mono text-sm">
+            <p class="text-xs text-gray-500">URL zum Aktualisieren der Titeldaten (JSON Format).</p>
+        </div>
+
+        <div class="pt-6 border-t border-white/10 flex justify-end space-x-4">
+            <button type="submit"
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg">
+                Einstellungen speichern
+            </button>
+        </div>
+    </form>
+
+    <!-- Manueller Metadaten Import -->
+    <div class="mt-12 pt-8 border-t border-gray-700">
+        <h3 class="text-xl font-bold text-white mb-4">Datenabgleich</h3>
+        <p class="text-gray-400 text-sm mb-6">Hier kannst du den manuellen Abgleich der Titeldaten aus n8n starten.</p>
+
+        <form method="POST" action="/settings/update_metadata">
+            <button type="submit"
+                class="w-full bg-audible-accent hover:bg-audible-hover text-white font-bold py-3 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Metadaten jetzt aktualisieren
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
