@@ -949,7 +949,9 @@ def edit_ticket(id):
         meta = fetch_metadata_by_isbn(isbn) if isbn else None
         audible_url = extract_audible_link(meta)
 
-        if new_status == "offen":
+        skip_deadline_extension = bool((assigned_to or "").strip()) and batch_label == "Stuck"
+        deadline_auto_extended = new_status == "offen" and not skip_deadline_extension
+        if deadline_auto_extended:
             new_deadline = (datetime.now().date() + timedelta(days=5)).isoformat()
 
         completion_date = existing_ticket["completion_date"]
@@ -990,11 +992,11 @@ def edit_ticket(id):
                 comment_added = add_ticket_comment(conn, id, comment_author, request.form.get("admin_comment"))
 
             conn.commit()
-            if comment_added and new_status == "offen":
+            if comment_added and deadline_auto_extended:
                 flash("Ticket aktualisiert, Kommentar gespeichert und Deadline um 5 Tage verlaengert.", "success")
             elif comment_added:
                 flash("Ticket aktualisiert und Kommentar gespeichert.", "success")
-            elif new_status == "offen":
+            elif deadline_auto_extended:
                 flash("Ticket aktualisiert und Deadline um 5 Tage verlaengert.", "success")
             else:
                 flash("Ticket erfolgreich aktualisiert.", "success")
