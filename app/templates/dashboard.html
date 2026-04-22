@@ -16,15 +16,6 @@
     </div>
 
     <div class="flex flex-wrap items-center gap-3">
-        {% if view_mode == 'open' %}
-        <form action="{{ url_for('bulk_mark_stuck') }}" method="POST">
-            <button type="submit"
-                class="px-4 py-2 rounded-lg border border-white/15 text-gray-200 hover:bg-white/8 transition text-sm font-medium">
-                Alle sichtbaren auf Stuck
-            </button>
-        </form>
-        {% endif %}
-
         <div class="flex bg-neutral-800 rounded-lg p-1 border border-gray-700">
             <a href="/dashboard"
                 class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'open' %}bg-audible-accent text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
@@ -60,6 +51,7 @@
                     <th class="p-4 font-medium border-b border-gray-700">Erstellt</th>
                     <th class="p-4 font-medium border-b border-gray-700">Verantw.</th>
                     <th class="p-4 font-medium border-b border-gray-700">ISBN / Titel</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Fastcheck</th>
                     <th class="p-4 font-medium border-b border-gray-700">Problem</th>
                     <th class="p-4 font-medium border-b border-gray-700">Portale</th>
                     <th class="p-4 font-medium border-b border-gray-700">Beschreibung</th>
@@ -104,6 +96,16 @@
                         </div>
                         {% endif %}
                         <div class="text-gray-500 font-mono text-xs">{{ ticket.isbn }}</div>
+                    </td>
+                    <td class="p-4 whitespace-nowrap">
+                        {% if ticket.audible_url %}
+                        <a href="{{ ticket.audible_url }}" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500">
+                            Audible
+                        </a>
+                        {% else %}
+                        <span class="text-gray-600">-</span>
+                        {% endif %}
                     </td>
                     <td class="p-4">
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
@@ -193,7 +195,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="9" class="p-12 text-center text-gray-500">
+                    <td colspan="10" class="p-12 text-center text-gray-500">
                         Keine Tickets gefunden.
                     </td>
                 </tr>

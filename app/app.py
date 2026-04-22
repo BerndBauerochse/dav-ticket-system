@@ -235,6 +235,46 @@ def normalize_problem_type(problem_type):
     return PROBLEM_TYPE_ALIASES.get(value, value)
 
 
+def extract_audible_link(metadata):
+    if not metadata:
+        return ""
+
+    prioritized_values = []
+    fallback_values = []
+
+    for key, value in metadata.items():
+        if value is None:
+            continue
+
+        text = str(value).strip()
+        if not text or not text.lower().startswith(("http://", "https://")):
+            continue
+
+        lowered_key = str(key).lower()
+        lowered_value = text.lower()
+        if "audible" not in lowered_value:
+            continue
+
+        if "audible" in lowered_key and any(token in lowered_key for token in ("link", "url", "href")):
+            prioritized_values.append(text)
+        else:
+            fallback_values.append(text)
+
+    return prioritized_values[0] if prioritized_values else (fallback_values[0] if fallback_values else "")
+
+
+def refresh_ticket_audible_links(conn, only_missing=False):
+    query = "SELECT id, isbn, audible_url FROM tickets"
+    rows = conn.execute(query).fetchall()
+    for row in rows:
+        if only_missing and (row["audible_url"] or "").strip():
+            continue
+
+        meta = fetch_metadata_by_isbn(row["isbn"])
+        audible_url = extract_audible_link(meta)
+        conn.execute("UPDATE tickets SET audible_url = ? WHERE id = ?", (audible_url, row["id"]))
+
+
 def check_and_update_schema():
     conn = None
     try:
@@ -253,6 +293,7 @@ def check_and_update_schema():
             "batch_label": "ALTER TABLE tickets ADD COLUMN batch_label TEXT",
             "last_reminder_sent_at": "ALTER TABLE tickets ADD COLUMN last_reminder_sent_at TEXT",
             "last_reminder_status": "ALTER TABLE tickets ADD COLUMN last_reminder_status TEXT",
+            "audible_url": "ALTER TABLE tickets ADD COLUMN audible_url TEXT",
         }
 
         for column_name, statement in ticket_columns.items():
@@ -265,6 +306,11 @@ def check_and_update_schema():
                 meta = fetch_metadata_by_isbn(row[1])
                 if meta and meta.get("Autor"):
                     cursor.execute("UPDATE tickets SET author = ? WHERE id = ?", (meta["Autor"], row[0]))
+
+        if "audible_url" not in columns:
+            refresh_ticket_audible_links(conn, only_missing=False)
+        else:
+            refresh_ticket_audible_links(conn, only_missing=True)
 
         cursor.execute(
             """
@@ -331,6 +377,7 @@ def enrich_ticket(ticket, comment_count=None):
     data["problem_type"] = normalize_problem_type(data.get("problem_type"))
     data["effective_batch"] = compute_ticket_batch(data)
     data["comment_count"] = comment_count if comment_count is not None else 0
+    data["audible_url"] = (data.get("audible_url") or "").strip()
     return data
 
 
@@ -502,6 +549,14 @@ def update_ticket_metadata_refresh(force=False):
         return False, "Automatisches Metadaten-Update ist fuer heute noch nicht faellig."
 
     success, message = metadaten_update.fetch_and_update()
+    if success:
+        conn = get_db_connection()
+        try:
+            refresh_ticket_audible_links(conn, only_missing=False)
+            conn.commit()
+        finally:
+            conn.close()
+
     config["metadata_auto_last_run"] = today
     config["metadata_auto_last_run_at"] = now.strftime("%d.%m.%Y %H:%M")
     config["metadata_auto_last_success"] = success
@@ -628,10 +683,12 @@ def new_ticket():
 
         title = "Unbekannter Titel"
         author = ""
+        audible_url = ""
         meta = fetch_metadata_by_isbn(isbn)
         if meta:
             title = meta.get("Titel", title)
             author = meta.get("Autor", author)
+            audible_url = extract_audible_link(meta)
 
         deadline = creation_date + timedelta(days=5 if problem_type == "Titel nicht online" else 14)
         now_iso = datetime.now().isoformat(timespec="seconds")
@@ -660,8 +717,8 @@ def new_ticket():
                 """
                 INSERT INTO tickets
                 (creation_date, problem_type, description, isbn, deadline, initial_contact_date, title, status,
-                 created_by, affected_portals, author, updated_at, assigned_to, batch_label)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_by, affected_portals, author, updated_at, assigned_to, batch_label, audible_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     creation_date.isoformat(),
@@ -678,6 +735,7 @@ def new_ticket():
                     now_iso,
                     assigned_to,
                     "",
+                    audible_url,
                 ),
             )
             conn.commit()
@@ -845,7 +903,7 @@ def delete_ticket(id):
 
 
 @app.route("/tickets/batch/stuck", methods=["POST"])
-@requires_auth
+@requires_admin_mode
 def bulk_mark_stuck():
     conn = get_db_connection()
     try:
@@ -887,6 +945,9 @@ def edit_ticket(id):
         problem_type = normalize_problem_type(request.form.get("problem_type"))
         comment_author = request.form.get("comment_author") or assigned_to or session.get("user_name") or "Admin"
         comment_added = False
+        isbn = (request.form.get("isbn") or "").strip()
+        meta = fetch_metadata_by_isbn(isbn) if isbn else None
+        audible_url = extract_audible_link(meta)
 
         if new_status == "offen":
             new_deadline = (datetime.now().date() + timedelta(days=5)).isoformat()
@@ -903,13 +964,13 @@ def edit_ticket(id):
                 UPDATE tickets
                 SET title = ?, author = ?, isbn = ?, status = ?, problem_type = ?, description = ?,
                     deadline = ?, initial_contact_date = ?, affected_portals = ?, completion_date = ?,
-                    updated_at = ?, assigned_to = ?, batch_label = ?
+                    updated_at = ?, assigned_to = ?, batch_label = ?, audible_url = ?
                 WHERE id = ?
                 """,
                 (
                     request.form.get("title"),
                     request.form.get("author"),
-                    request.form.get("isbn"),
+                    isbn,
                     new_status,
                     problem_type,
                     (request.form.get("description") or "").strip(),
@@ -920,6 +981,7 @@ def edit_ticket(id):
                     datetime.now().isoformat(timespec="seconds"),
                     assigned_to,
                     batch_label,
+                    audible_url,
                     id,
                 ),
             )
