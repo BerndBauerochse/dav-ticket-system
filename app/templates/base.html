@@ -29,6 +29,21 @@
         }
     </script>
     <style>
+        :root {
+            --tone-surface: rgba(45, 45, 45, 0.6);
+            --tone-border: rgba(255, 255, 255, 0.1);
+            --tone-chip-neutral-bg: #2d3138;
+            --tone-chip-neutral-text: #c8d0db;
+            --tone-chip-person-a-bg: #7d2d4d;
+            --tone-chip-person-a-text: #ffe4ef;
+            --tone-chip-person-b-bg: #214f68;
+            --tone-chip-person-b-text: #dff3ff;
+            --tone-chip-alert-bg: #7a2e39;
+            --tone-chip-alert-text: #ffe2e7;
+            --tone-chip-stuck-bg: #5a475f;
+            --tone-chip-stuck-text: #f2e4f8;
+        }
+
         body {
             background:
                 radial-gradient(circle at top, rgba(210, 30, 64, 0.12), transparent 32%),
@@ -37,14 +52,50 @@
         }
 
         .glass {
-            background: rgba(45, 45, 45, 0.6);
+            background: var(--tone-surface);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--tone-border);
         }
 
         select option {
             color: #111;
             background: #f5f5f5;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1.2;
+        }
+
+        .chip-neutral {
+            background: var(--tone-chip-neutral-bg);
+            color: var(--tone-chip-neutral-text);
+        }
+
+        .chip-person-doro {
+            background: var(--tone-chip-person-a-bg);
+            color: var(--tone-chip-person-a-text);
+        }
+
+        .chip-person-bernd {
+            background: var(--tone-chip-person-b-bg);
+            color: var(--tone-chip-person-b-text);
+        }
+
+        .chip-batch-alert {
+            background: var(--tone-chip-alert-bg);
+            color: var(--tone-chip-alert-text);
+        }
+
+        .chip-batch-stuck {
+            background: var(--tone-chip-stuck-bg);
+            color: var(--tone-chip-stuck-text);
         }
     </style>
 </head>

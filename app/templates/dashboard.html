@@ -19,7 +19,7 @@
         {% if view_mode == 'open' %}
         <form action="{{ url_for('bulk_mark_stuck') }}" method="POST">
             <button type="submit"
-                class="px-4 py-2 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 transition text-sm font-medium">
+                class="px-4 py-2 rounded-lg border border-white/15 text-gray-200 hover:bg-white/8 transition text-sm font-medium">
                 Alle sichtbaren auf Stuck
             </button>
         </form>
@@ -59,7 +59,6 @@
                     </th>
                     <th class="p-4 font-medium border-b border-gray-700">Erstellt</th>
                     <th class="p-4 font-medium border-b border-gray-700">Verantw.</th>
-                    <th class="p-4 font-medium border-b border-gray-700">Batch</th>
                     <th class="p-4 font-medium border-b border-gray-700">ISBN / Titel</th>
                     <th class="p-4 font-medium border-b border-gray-700">Problem</th>
                     <th class="p-4 font-medium border-b border-gray-700">Portale</th>
@@ -81,21 +80,12 @@
                     <td class="p-4 text-white font-medium">{{ ticket.created_by if ticket.created_by else '-' }}</td>
                     <td class="p-4 whitespace-nowrap">
                         {% if ticket.assigned_to == 'Doro' %}
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500 text-white">
+                        <span class="chip chip-person-doro">
                             Doro
                         </span>
                         {% elif ticket.assigned_to == 'Bernd' %}
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-sky-500 text-white">
+                        <span class="chip chip-person-bernd">
                             Bernd
-                        </span>
-                        {% else %}
-                        <span class="text-gray-600">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="p-4 whitespace-nowrap">
-                        {% if ticket.effective_batch %}
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium {% if ticket.effective_batch == 'Stuck' %}bg-stone-500 text-white{% else %}bg-orange-500 text-white{% endif %}">
-                            {{ ticket.effective_batch }}
                         </span>
                         {% else %}
                         <span class="text-gray-600">-</span>
@@ -106,10 +96,17 @@
                         {% if ticket.author %}
                         <div class="text-gray-400 text-xs truncate mb-0.5" title="{{ ticket.author }}">{{ ticket.author }}</div>
                         {% endif %}
+                        {% if ticket.effective_batch %}
+                        <div class="mt-1">
+                            <span class="chip {% if ticket.effective_batch == 'Stuck' %}chip-batch-stuck{% else %}chip-batch-alert{% endif %}">
+                                {{ ticket.effective_batch }}
+                            </span>
+                        </div>
+                        {% endif %}
                         <div class="text-gray-500 font-mono text-xs">{{ ticket.isbn }}</div>
                     </td>
                     <td class="p-4">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
                             {{ ticket.problem_type }}
                         </span>
                     </td>
@@ -117,7 +114,7 @@
                         {% if ticket.affected_portals %}
                         <div class="flex flex-wrap gap-1">
                             {% for portal in ticket.affected_portals.split(',') %}
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-neutral-800 text-gray-400 border border-gray-700">
+                            <span class="chip chip-neutral">
                                 {{ portal.strip() }}
                             </span>
                             {% endfor %}
@@ -196,7 +193,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="10" class="p-12 text-center text-gray-500">
+                    <td colspan="9" class="p-12 text-center text-gray-500">
                         Keine Tickets gefunden.
                     </td>
                 </tr>

@@ -15,7 +15,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-4 gap-8">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
         <div class="xl:col-span-2 space-y-6">
             <form id="editForm" action="{{ url_for('edit_ticket', id=ticket['id']) }}" method="POST" class="space-y-6">
                 <div class="glass p-6 rounded-xl border border-white/10">
@@ -62,6 +62,13 @@
                                 <option value="Stuck" {% if ticket['batch_label']=='Stuck' %}selected{% endif %}>Stuck</option>
                             </select>
                             <p class="text-xs text-gray-500 mt-2">Ohne manuelle Auswahl wird bei ueberfaelligen offenen Tickets automatisch "Aktion erforderlich" angezeigt.</p>
+                            {% if ticket.effective_batch %}
+                            <div class="mt-2">
+                                <span class="chip {% if ticket.effective_batch == 'Stuck' %}chip-batch-stuck{% else %}chip-batch-alert{% endif %}">
+                                    Aktuell: {{ ticket.effective_batch }}
+                                </span>
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -182,30 +189,6 @@
                         Ticket loeschen
                     </button>
                 </form>
-            </div>
-        </div>
-
-        <div class="space-y-6">
-            <div class="glass p-6 rounded-xl border border-white/10">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-xl font-bold text-audible-accent">Kommentar-Historie</h2>
-                    <span class="text-xs text-gray-500">{{ comments|length }} Eintraege</span>
-                </div>
-                <div class="space-y-4 max-h-[44rem] overflow-y-auto pr-1">
-                    {% for comment in comments %}
-                    <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div class="flex items-center justify-between gap-3 mb-2">
-                            <div class="font-semibold text-white">{{ comment.author }}</div>
-                            <div class="text-xs text-gray-500">{{ comment.created_at }}</div>
-                        </div>
-                        <div class="text-sm text-gray-300 leading-relaxed">{{ comment.comment | format_comments }}</div>
-                    </div>
-                    {% else %}
-                    <div class="rounded-xl border border-dashed border-white/10 p-6 text-sm text-gray-500 text-center">
-                        Noch keine Kommentare gespeichert.
-                    </div>
-                    {% endfor %}
-                </div>
             </div>
         </div>
     </div>
