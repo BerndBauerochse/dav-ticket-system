@@ -58,12 +58,11 @@
                         {% endif %}
                     </th>
                     <th class="p-4 font-medium border-b border-gray-700">Erstellt</th>
-                    <th class="p-4 font-medium border-b border-gray-700">Verantwortlich</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Verantw.</th>
                     <th class="p-4 font-medium border-b border-gray-700">Batch</th>
                     <th class="p-4 font-medium border-b border-gray-700">ISBN / Titel</th>
                     <th class="p-4 font-medium border-b border-gray-700">Problem</th>
                     <th class="p-4 font-medium border-b border-gray-700">Portale</th>
-                    <th class="p-4 font-medium border-b border-gray-700">Kommentare</th>
                     <th class="p-4 font-medium border-b border-gray-700">Beschreibung</th>
                     <th class="p-4 font-medium border-b border-gray-700 w-32">Aktionen</th>
                 </tr>
@@ -80,10 +79,22 @@
                         {% endif %}
                     </td>
                     <td class="p-4 text-white font-medium">{{ ticket.created_by if ticket.created_by else '-' }}</td>
-                    <td class="p-4 text-white font-medium">{{ ticket.assigned_to if ticket.assigned_to else '-' }}</td>
-                    <td class="p-4">
+                    <td class="p-4 whitespace-nowrap">
+                        {% if ticket.assigned_to == 'Doro' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500 text-white">
+                            Doro
+                        </span>
+                        {% elif ticket.assigned_to == 'Bernd' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-sky-500 text-white">
+                            Bernd
+                        </span>
+                        {% else %}
+                        <span class="text-gray-600">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="p-4 whitespace-nowrap">
                         {% if ticket.effective_batch %}
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {% if ticket.effective_batch == 'Stuck' %}bg-amber-900/40 text-amber-300 border border-amber-700{% else %}bg-red-900/40 text-red-300 border border-red-700{% endif %}">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium {% if ticket.effective_batch == 'Stuck' %}bg-stone-500 text-white{% else %}bg-orange-500 text-white{% endif %}">
                             {{ ticket.effective_batch }}
                         </span>
                         {% else %}
@@ -113,13 +124,6 @@
                         </div>
                         {% else %}
                         <span class="text-gray-600">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="p-4 text-gray-300">
-                        {% if ticket.comment_count %}
-                        {{ ticket.comment_count }}
-                        {% else %}
-                        <span class="text-gray-600">0</span>
                         {% endif %}
                     </td>
                     <td class="p-4 max-w-lg text-gray-400 text-sm leading-relaxed align-top">
@@ -192,7 +196,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="11" class="p-12 text-center text-gray-500">
+                    <td colspan="10" class="p-12 text-center text-gray-500">
                         Keine Tickets gefunden.
                     </td>
                 </tr>
