@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto">
+<div class="max-w-6xl mx-auto">
     <div class="flex justify-between items-center mb-8 gap-4">
         <h1 class="text-3xl font-bold text-white">
             Ticket bearbeiten <span class="text-gray-500 text-lg">#{{ ticket['id'] }}</span>
@@ -15,10 +15,9 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div class="md:col-span-2 space-y-6">
+    <div class="grid grid-cols-1 xl:grid-cols-4 gap-8">
+        <div class="xl:col-span-2 space-y-6">
             <form id="editForm" action="{{ url_for('edit_ticket', id=ticket['id']) }}" method="POST" class="space-y-6">
-
                 <div class="glass p-6 rounded-xl border border-white/10">
                     <h2 class="text-xl font-bold text-audible-accent mb-4">Basisdaten</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -40,10 +39,29 @@
                         <div>
                             <label class="block text-gray-400 text-sm mb-1">Status</label>
                             <select name="status"
-                                class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                                class="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
                                 <option value="offen" {% if ticket['status']=='offen' %}selected{% endif %}>Offen</option>
                                 <option value="erledigt" {% if ticket['status']=='erledigt' %}selected{% endif %}>Erledigt</option>
                             </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-sm mb-1">Verantwortlich</label>
+                            <select name="assigned_to"
+                                class="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                                <option value="">Nicht zugewiesen</option>
+                                {% for member in team_members %}
+                                <option value="{{ member }}" {% if ticket['assigned_to']==member %}selected{% endif %}>{{ member }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-sm mb-1">Batch</label>
+                            <select name="batch_label"
+                                class="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                                <option value="">Automatisch</option>
+                                <option value="Stuck" {% if ticket['batch_label']=='Stuck' %}selected{% endif %}>Stuck</option>
+                            </select>
+                            <p class="text-xs text-gray-500 mt-2">Ohne manuelle Auswahl wird bei ueberfaelligen offenen Tickets automatisch "Aktion erforderlich" angezeigt.</p>
                         </div>
                     </div>
                 </div>
@@ -54,8 +72,8 @@
                     <div class="mb-4">
                         <label class="block text-gray-400 text-sm mb-1">Problemtyp</label>
                         <select name="problem_type"
-                            class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
-                            {% for type in ['Preisänderung', 'Titel nicht online', 'Audioanpassung', 'Rezension löschen', 'Cover Austausch', 'Meldung nicht online', 'Metadaten ändern', 'Takedown', 'TOC fehlt', 'Sonstiges'] %}
+                            class="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                            {% for type in ['Preisaenderung', 'Titel nicht online', 'Audioanpassung', 'Rezension loeschen', 'Cover Austausch', 'Meldung nicht online', 'Metadaten aendern', 'Takedown', 'TOC fehlt', 'Sonstiges'] %}
                             <option value="{{ type }}" {% if ticket['problem_type']==type %}selected{% endif %}>{{ type }}</option>
                             {% endfor %}
                         </select>
@@ -67,22 +85,12 @@
                             class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none font-mono text-sm leading-relaxed">{{ ticket['description'] }}</textarea>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="block text-gray-400 text-sm mb-1">Neuer Kommentar</label>
-                        <textarea name="admin_comment" rows="4"
-                            class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none text-sm leading-relaxed"
-                            placeholder="Kommentar ergänzen ..."></textarea>
-                        <p class="text-xs text-gray-500 mt-2">
-                            Beim Speichern wird der Kommentar an die Beschreibung angehängt. Offene Tickets bekommen dabei automatisch eine neue Deadline in 5 Tagen.
-                        </p>
-                    </div>
-
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-gray-400 text-sm mb-1">Deadline</label>
                             <input type="date" name="deadline" value="{{ ticket['deadline'] }}"
                                 class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
-                            <p class="text-xs text-gray-500 mt-2">Wird bei offenen Tickets beim Speichern automatisch auf heute + 5 Tage gesetzt.</p>
+                            <p class="text-xs text-gray-500 mt-2">Offene Tickets werden beim Speichern weiter auf heute + 5 Tage verschoben.</p>
                         </div>
                         <div>
                             <label class="block text-gray-400 text-sm mb-1">Erstkontakt</label>
@@ -109,6 +117,27 @@
         </div>
 
         <div class="space-y-6">
+            <div class="glass p-6 rounded-xl border border-white/10">
+                <h2 class="text-xl font-bold text-audible-accent mb-4">Kommentar erfassen</h2>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-gray-400 text-sm mb-1">Kommentar von</label>
+                        <select name="comment_author" form="editForm"
+                            class="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                            {% for member in team_members %}
+                            <option value="{{ member }}" {% if ticket['assigned_to']==member %}selected{% endif %}>{{ member }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-400 text-sm mb-1">Neuer Kommentar</label>
+                        <textarea name="admin_comment" form="editForm" rows="6"
+                            class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none text-sm leading-relaxed"
+                            placeholder="Kommentar speichern ..."></textarea>
+                    </div>
+                </div>
+            </div>
+
             <div class="glass p-6 rounded-xl border border-white/10 bg-gradient-to-br from-blue-900/20 to-transparent">
                 <h2 class="text-xl font-bold text-blue-400 mb-4 flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
@@ -122,21 +151,24 @@
 
                 <a href="mailto:?subject={{ mail_subject }}&body={{ mail_body }}" target="_blank"
                     class="block w-full text-center bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-lg transition mb-2">
-                    Mail öffnen
+                    Mail oeffnen
                 </a>
 
                 <div class="text-xs text-gray-500 mt-2 text-center">
-                    Öffnet dein Standard-Mailprogramm.
+                    Oeffnet dein Standard-Mailprogramm.
                 </div>
             </div>
 
             <div class="glass p-6 rounded-xl border border-white/10">
                 <h2 class="text-xl font-bold text-audible-accent mb-4">Metadaten-Update</h2>
                 <div class="text-sm text-gray-300 space-y-2">
-                    <p>Automatik: <span class="{% if auto_update_enabled %}text-green-400{% else %}text-yellow-400{% endif %}">
-                        {% if auto_update_enabled %}aktiv{% else %}deaktiviert{% endif %}
-                    </span></p>
-                    <p>Letzter Lauf: {{ auto_update_last_run or 'noch nicht ausgeführt' }}</p>
+                    <p>Automatik:
+                        <span class="{% if auto_update_enabled %}text-green-400{% else %}text-yellow-400{% endif %}">
+                            {% if auto_update_enabled %}aktiv{% else %}deaktiviert{% endif %}
+                        </span>
+                    </p>
+                    <p>Geplante Uhrzeit: taeglich um {{ auto_update_time }}</p>
+                    <p>Letzter Lauf: {{ auto_update_last_run or 'noch nicht ausgefuehrt' }}</p>
                     <p class="text-gray-400">{{ auto_update_message }}</p>
                 </div>
             </div>
@@ -144,12 +176,36 @@
             <div class="glass p-6 rounded-xl border border-red-900/20">
                 <h2 class="text-xl font-bold text-red-500 mb-4">Gefahrenzone</h2>
                 <form action="{{ url_for('delete_ticket', id=ticket['id']) }}" method="POST"
-                    onsubmit="return confirm('Wirklich unwiderruflich löschen?');">
+                    onsubmit="return confirm('Wirklich unwiderruflich loeschen?');">
                     <button type="submit"
                         class="w-full border border-red-500/30 text-red-400 hover:bg-red-500/10 py-2 px-4 rounded-lg transition">
-                        Ticket löschen
+                        Ticket loeschen
                     </button>
                 </form>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="glass p-6 rounded-xl border border-white/10">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-audible-accent">Kommentar-Historie</h2>
+                    <span class="text-xs text-gray-500">{{ comments|length }} Eintraege</span>
+                </div>
+                <div class="space-y-4 max-h-[44rem] overflow-y-auto pr-1">
+                    {% for comment in comments %}
+                    <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div class="flex items-center justify-between gap-3 mb-2">
+                            <div class="font-semibold text-white">{{ comment.author }}</div>
+                            <div class="text-xs text-gray-500">{{ comment.created_at }}</div>
+                        </div>
+                        <div class="text-sm text-gray-300 leading-relaxed">{{ comment.comment | format_comments }}</div>
+                    </div>
+                    {% else %}
+                    <div class="rounded-xl border border-dashed border-white/10 p-6 text-sm text-gray-500 text-center">
+                        Noch keine Kommentare gespeichert.
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>

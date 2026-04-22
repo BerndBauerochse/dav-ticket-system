@@ -1,7 +1,5 @@
 import json
 import os
-import re
-import secrets
 import sqlite3
 import threading
 import time
@@ -20,11 +18,25 @@ app = Flask(__name__)
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-METADATA_REFRESH_INTERVAL_SECONDS = 3600
+BACKGROUND_INTERVAL_SECONDS = 60
+DEFAULT_METADATA_UPDATE_TIME = "06:00"
+TEAM_MEMBERS = ["Doro", "Bernd"]
+BATCH_OPTIONS = ["", "Stuck"]
+PROBLEM_TYPE_ALIASES = {
+    "Preisänderung": "Preisaenderung",
+    "PreisÃ¤nderung": "Preisaenderung",
+    "Preisaenderung": "Preisaenderung",
+    "Rezension löschen": "Rezension loeschen",
+    "Rezension lÃ¶schen": "Rezension loeschen",
+    "Rezension loeschen": "Rezension loeschen",
+    "Metadaten ändern": "Metadaten aendern",
+    "Metadaten Ã¤ndern": "Metadaten aendern",
+    "Metadaten aendern": "Metadaten aendern",
+}
 METADATA_AUTO_UPDATE_STATE = {
     "last_run_at": None,
     "last_success": None,
-    "last_message": "Noch kein automatisches Update ausgeführt.",
+    "last_message": "Noch kein automatisches Update ausgefuehrt.",
 }
 
 
@@ -60,6 +72,8 @@ def get_secret_key():
     if config_secret:
         return config_secret
 
+    import secrets
+
     generated_secret = secrets.token_urlsafe(48)
     config["secret_key"] = generated_secret
     save_config(config)
@@ -86,19 +100,18 @@ def get_metadata_path():
 
 
 def get_db_connection():
-    db_path = get_db_path()
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def get_metadata_connection():
     meta_path = get_metadata_path()
-    if os.path.exists(meta_path):
-        conn = sqlite3.connect(meta_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-    return None
+    if not os.path.exists(meta_path):
+        return None
+    conn = sqlite3.connect(meta_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def check_auth(password):
@@ -134,7 +147,7 @@ def requires_admin_mode(f):
             next_url = request.full_path if request.query_string else request.path
             return redirect(url_for("login", next=next_url))
         if not session.get("admin_mode"):
-            flash("Zugriff verweigert. Bitte zuerst den Admin-Modus öffnen.", "error")
+            flash("Zugriff verweigert. Bitte zuerst den Admin-Modus oeffnen.", "error")
             return redirect(url_for("dashboard"))
         return f(*args, **kwargs)
 
@@ -167,21 +180,59 @@ def fetch_metadata_by_isbn(isbn):
 
         cursor.execute(f'SELECT * FROM metadata WHERE "{isbn_col}" = ?', (str(isbn),))
         row = cursor.fetchone()
-        if row:
-            data = dict(row)
-            return {
-                "Titel": data.get(title_col, "Unbekannt") if title_col else "Unbekannt",
-                "Autor": data.get(author_col, "") if author_col else "",
-                "Cover URL": data.get(cover_col, "") if cover_col else "",
-                **data,
-            }
+        if not row:
+            return None
+
+        data = dict(row)
+        return {
+            "Titel": data.get(title_col, "Unbekannt") if title_col else "Unbekannt",
+            "Autor": data.get(author_col, "") if author_col else "",
+            "Cover URL": data.get(cover_col, "") if cover_col else "",
+            **data,
+        }
     except Exception as e:
         print(f"Metadata Error: {e}")
+        return None
     finally:
         if conn:
             conn.close()
 
-    return None
+
+def normalize_metadata_update_time(raw_value):
+    value = (raw_value or "").strip()
+    if not value:
+        return DEFAULT_METADATA_UPDATE_TIME
+    try:
+        parsed = datetime.strptime(value, "%H:%M")
+        return parsed.strftime("%H:%M")
+    except ValueError:
+        return DEFAULT_METADATA_UPDATE_TIME
+
+
+def should_run_metadata_update_now(config, now=None):
+    now = now or datetime.now()
+    scheduled_time = normalize_metadata_update_time(config.get("metadata_auto_update_time"))
+    scheduled_hour, scheduled_minute = map(int, scheduled_time.split(":"))
+    last_run = config.get("metadata_auto_last_run")
+
+    if last_run == now.date().isoformat():
+        return False
+
+    current_minutes = now.hour * 60 + now.minute
+    scheduled_minutes = scheduled_hour * 60 + scheduled_minute
+    return current_minutes >= scheduled_minutes
+
+
+def normalize_batch_label(batch_label):
+    value = (batch_label or "").strip()
+    if value in BATCH_OPTIONS:
+        return value
+    return ""
+
+
+def normalize_problem_type(problem_type):
+    value = (problem_type or "").strip()
+    return PROBLEM_TYPE_ALIASES.get(value, value)
 
 
 def check_and_update_schema():
@@ -192,22 +243,42 @@ def check_and_update_schema():
         cursor.execute("PRAGMA table_info(tickets)")
         columns = [info[1] for info in cursor.fetchall()]
 
-        if "created_by" not in columns:
-            cursor.execute("ALTER TABLE tickets ADD COLUMN created_by TEXT")
-        if "affected_portals" not in columns:
-            cursor.execute("ALTER TABLE tickets ADD COLUMN affected_portals TEXT")
+        ticket_columns = {
+            "created_by": "ALTER TABLE tickets ADD COLUMN created_by TEXT",
+            "affected_portals": "ALTER TABLE tickets ADD COLUMN affected_portals TEXT",
+            "author": "ALTER TABLE tickets ADD COLUMN author TEXT",
+            "updated_at": "ALTER TABLE tickets ADD COLUMN updated_at TEXT",
+            "last_comment_at": "ALTER TABLE tickets ADD COLUMN last_comment_at TEXT",
+            "assigned_to": "ALTER TABLE tickets ADD COLUMN assigned_to TEXT",
+            "batch_label": "ALTER TABLE tickets ADD COLUMN batch_label TEXT",
+            "last_reminder_sent_at": "ALTER TABLE tickets ADD COLUMN last_reminder_sent_at TEXT",
+            "last_reminder_status": "ALTER TABLE tickets ADD COLUMN last_reminder_status TEXT",
+        }
+
+        for column_name, statement in ticket_columns.items():
+            if column_name not in columns:
+                cursor.execute(statement)
+
         if "author" not in columns:
-            cursor.execute("ALTER TABLE tickets ADD COLUMN author TEXT")
             cursor.execute("SELECT id, isbn FROM tickets")
             for row in cursor.fetchall():
                 meta = fetch_metadata_by_isbn(row[1])
-                if meta and "Autor" in meta:
+                if meta and meta.get("Autor"):
                     cursor.execute("UPDATE tickets SET author = ? WHERE id = ?", (meta["Autor"], row[0]))
-        if "updated_at" not in columns:
-            cursor.execute("ALTER TABLE tickets ADD COLUMN updated_at TEXT")
-        if "last_comment_at" not in columns:
-            cursor.execute("ALTER TABLE tickets ADD COLUMN last_comment_at TEXT")
 
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ticket_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_id INTEGER NOT NULL,
+                author TEXT NOT NULL,
+                comment TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ticket_comments_ticket_id ON ticket_comments (ticket_id)")
         conn.commit()
     except Exception as e:
         print(f"Fehler bei Schema-Update: {e}")
@@ -221,60 +292,115 @@ check_and_update_schema()
 
 @app.context_processor
 def inject_layout_defaults():
-    return {"today": datetime.now().strftime("%Y")}
+    return {
+        "today": datetime.now().strftime("%Y"),
+        "team_members": TEAM_MEMBERS,
+        "batch_options": BATCH_OPTIONS,
+    }
 
 
 @app.template_filter("format_comments")
 def format_comments(text):
     if not text:
         return ""
-
-    escaped = str(escape(text)).replace("\n", "<br>")
-    pattern = r"(\[Kommentar Admin - \d{2}\.\d{2}\.\d{4}(?: \d{2}:\d{2})?\]:)"
-
-    def replace(match):
-        return (
-            '<br><span class="text-audible-accent font-bold block mt-2 mb-1 '
-            'border-l-2 border-audible-accent pl-2">'
-            f"{match.group(1)}</span>"
-        )
-
-    return Markup(re.sub(pattern, replace, escaped))
+    return Markup(str(escape(text)).replace("\n", "<br>"))
 
 
-def send_teams_notification(ticket_data):
+def compute_ticket_batch(ticket):
+    manual_batch = normalize_batch_label(ticket.get("batch_label"))
+    if manual_batch:
+        return manual_batch
+
+    status = ticket.get("status")
+    deadline = ticket.get("deadline")
+    if status != "offen" or not deadline:
+        return ""
+
+    try:
+        deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+
+    if deadline_date < datetime.now().date():
+        return "Aktion erforderlich"
+    return ""
+
+
+def enrich_ticket(ticket, comment_count=None):
+    data = dict(ticket)
+    data["problem_type"] = normalize_problem_type(data.get("problem_type"))
+    data["effective_batch"] = compute_ticket_batch(data)
+    data["comment_count"] = comment_count if comment_count is not None else 0
+    return data
+
+
+def add_ticket_comment(conn, ticket_id, author, comment):
+    cleaned_comment = (comment or "").strip()
+    if not cleaned_comment:
+        return False
+
+    created_at = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO ticket_comments (ticket_id, author, comment, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (ticket_id, author, cleaned_comment, created_at),
+    )
+    conn.execute(
+        "UPDATE tickets SET last_comment_at = ?, updated_at = ? WHERE id = ?",
+        (created_at, created_at, ticket_id),
+    )
+    return True
+
+
+def get_ticket_comments(ticket_id):
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, ticket_id, author, comment, created_at
+            FROM ticket_comments
+            WHERE ticket_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (ticket_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_comment_counts(conn):
+    rows = conn.execute(
+        """
+        SELECT ticket_id, COUNT(*) AS comment_count
+        FROM ticket_comments
+        GROUP BY ticket_id
+        """
+    ).fetchall()
+    return {row["ticket_id"]: row["comment_count"] for row in rows}
+
+
+def send_teams_card(title, facts, text, color="d21e40"):
     config = load_config()
     webhook_url = config.get("teams_webhook")
     if not webhook_url:
-        return
+        return False
 
     def _send():
         try:
             payload = {
                 "@type": "MessageCard",
                 "@context": "http://schema.org/extensions",
-                "themeColor": "d21e40",
-                "summary": "Neues Ticket angelegt",
+                "themeColor": color,
+                "summary": title,
                 "sections": [
                     {
-                        "activityTitle": f"Neues Ticket: {ticket_data['title']}",
-                        "activitySubtitle": f"Erstellt von {ticket_data['created_by']}",
-                        "facts": [
-                            {"name": "ISBN:", "value": ticket_data["isbn"]},
-                            {"name": "Autor:", "value": ticket_data["author"]},
-                            {"name": "Problem:", "value": ticket_data["problem_type"]},
-                            {"name": "Portale:", "value": ticket_data["affected_portals"]},
-                            {"name": "Deadline:", "value": ticket_data["deadline"].strftime("%d.%m.%Y")},
-                        ],
+                        "activityTitle": title,
+                        "facts": facts,
                         "markdown": True,
-                        "text": f"**Beschreibung:**\n{ticket_data['description']}",
-                    }
-                ],
-                "potentialAction": [
-                    {
-                        "@type": "OpenUri",
-                        "name": "Zum Ticket-Dashboard",
-                        "targets": [{"os": "default", "uri": f"{config.get('base_url', 'http://localhost:5000')}/dashboard"}],
+                        "text": text,
                     }
                 ],
             }
@@ -283,18 +409,84 @@ def send_teams_notification(ticket_data):
             print(f"Fehler beim Senden an Teams: {e}")
 
     threading.Thread(target=_send, daemon=True).start()
+    return True
 
 
-def get_comment_block(comment_text):
-    timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")
-    cleaned_comment = (comment_text or "").strip()
-    if not cleaned_comment:
-        return ""
-    return f"[Kommentar Admin - {timestamp}]:\n{cleaned_comment}"
+def send_teams_notification(ticket_data):
+    send_teams_card(
+        title=f"Neues Ticket: {ticket_data['title']}",
+        facts=[
+            {"name": "ISBN:", "value": ticket_data["isbn"]},
+            {"name": "Autor:", "value": ticket_data["author"] or "-"},
+            {"name": "Problem:", "value": ticket_data["problem_type"]},
+            {"name": "Portale:", "value": ticket_data["affected_portals"] or "-"},
+            {"name": "Verantwortlich:", "value": ticket_data["assigned_to"] or "-"},
+            {"name": "Deadline:", "value": ticket_data["deadline"].strftime("%d.%m.%Y")},
+        ],
+        text=f"**Beschreibung:**\n{ticket_data['description'] or '-'}",
+    )
 
 
-def extend_deadline_from_today(days=5):
-    return (datetime.now().date() + timedelta(days=days)).isoformat()
+def send_due_ticket_reminders():
+    conn = get_db_connection()
+    try:
+        today = datetime.now().date()
+        today_iso = today.isoformat()
+        tickets = conn.execute(
+            """
+            SELECT *
+            FROM tickets
+            WHERE status = 'offen' AND deadline IS NOT NULL
+            """
+        ).fetchall()
+
+        for row in tickets:
+            ticket = dict(row)
+            try:
+                deadline_date = datetime.strptime(ticket["deadline"], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+
+            reminder_status = None
+            if deadline_date < today:
+                reminder_status = "overdue"
+            elif deadline_date <= today + timedelta(days=1):
+                reminder_status = "due_soon"
+
+            if not reminder_status:
+                continue
+
+            if ticket.get("last_reminder_sent_at") == today_iso and ticket.get("last_reminder_status") == reminder_status:
+                continue
+
+            title = (
+                f"Ticket ueberfaellig: {ticket.get('title') or ticket.get('isbn')}"
+                if reminder_status == "overdue"
+                else f"Ticket kurz vor Deadline: {ticket.get('title') or ticket.get('isbn')}"
+            )
+            facts = [
+                {"name": "Ticket:", "value": f"#{ticket['id']}"},
+                {"name": "ISBN:", "value": ticket.get("isbn") or "-"},
+                {"name": "Problem:", "value": ticket.get("problem_type") or "-"},
+                {"name": "Verantwortlich:", "value": ticket.get("assigned_to") or "-"},
+                {"name": "Deadline:", "value": ticket.get("deadline") or "-"},
+                {"name": "Batch:", "value": compute_ticket_batch(ticket) or "-"},
+            ]
+            body = ticket.get("description") or "Keine Beschreibung hinterlegt."
+            sent = send_teams_card(title, facts, body, color="ff9f1c" if reminder_status == "due_soon" else "d21e40")
+            if sent:
+                conn.execute(
+                    """
+                    UPDATE tickets
+                    SET last_reminder_sent_at = ?, last_reminder_status = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (today_iso, reminder_status, datetime.now().isoformat(timespec="seconds"), ticket["id"]),
+                )
+
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def update_ticket_metadata_refresh(force=False):
@@ -303,38 +495,78 @@ def update_ticket_metadata_refresh(force=False):
     if not auto_enabled and not force:
         return False, "Automatisches Metadaten-Update ist deaktiviert."
 
-    last_run = config.get("metadata_auto_last_run")
-    today = datetime.now().date().isoformat()
-    if not force and last_run == today:
-        return True, "Automatisches Metadaten-Update wurde heute bereits ausgeführt."
+    config["metadata_auto_update_time"] = normalize_metadata_update_time(config.get("metadata_auto_update_time"))
+    now = datetime.now()
+    today = now.date().isoformat()
+    if not force and not should_run_metadata_update_now(config, now):
+        return False, "Automatisches Metadaten-Update ist fuer heute noch nicht faellig."
 
     success, message = metadaten_update.fetch_and_update()
     config["metadata_auto_last_run"] = today
+    config["metadata_auto_last_run_at"] = now.strftime("%d.%m.%Y %H:%M")
     config["metadata_auto_last_success"] = success
     config["metadata_auto_last_message"] = message
     save_config(config)
 
-    METADATA_AUTO_UPDATE_STATE["last_run_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+    METADATA_AUTO_UPDATE_STATE["last_run_at"] = config["metadata_auto_last_run_at"]
     METADATA_AUTO_UPDATE_STATE["last_success"] = success
     METADATA_AUTO_UPDATE_STATE["last_message"] = message
     return success, message
 
 
-def metadata_auto_update_loop():
+def background_loop():
     while True:
         try:
             update_ticket_metadata_refresh(force=False)
+            send_due_ticket_reminders()
         except Exception as e:
-            print(f"Fehler im automatischen Metadaten-Update: {e}")
-        time.sleep(METADATA_REFRESH_INTERVAL_SECONDS)
+            print(f"Fehler im Hintergrund-Loop: {e}")
+        time.sleep(BACKGROUND_INTERVAL_SECONDS)
 
 
-def start_metadata_auto_update_scheduler():
-    worker = threading.Thread(target=metadata_auto_update_loop, name="metadata-auto-update", daemon=True)
+def start_background_worker():
+    worker = threading.Thread(target=background_loop, name="ticket-background-worker", daemon=True)
     worker.start()
 
 
-start_metadata_auto_update_scheduler()
+start_background_worker()
+
+
+def generate_mail_content(ticket):
+    title = ticket["title"] or "Unknown Title"
+    isbn = ticket["isbn"] or "Unknown ISBN"
+    ptype = ticket["problem_type"]
+    init_date = ticket["initial_contact_date"]
+    date_str = init_date if isinstance(init_date, str) else (init_date.strftime("%d.%m.%Y") if init_date else "N/A")
+
+    ptype = normalize_problem_type(ptype)
+
+    if ptype == "Preisaenderung":
+        subject = f"[change request] price change - {title} - {isbn}"
+        body = (
+            "Dear Audible Team,\n\n"
+            f"On {date_str}, I submitted a price change request for...\n\n"
+            f"ISBN: {isbn}\nTitle: {title}\n\n"
+            "Please process immediately.\n\nBest regards,\nDoro"
+        )
+    elif ptype == "Titel nicht online":
+        subject = f"[title not online] - {title} - {isbn}"
+        body = (
+            "Dear Audible Team,\n\n"
+            f"The title {title} ({isbn}) is still not online.\n"
+            f"Release Date was supposed to be around {date_str}.\n\n"
+            "Please check.\n\nBest regards,\nDoro"
+        )
+    else:
+        subject = f"Audible Issue: {ptype} - {title}"
+        body = (
+            "Hello Audible Team,\n\n"
+            "We have an issue regarding:\n"
+            f"Title: {title}\nISBN: {isbn}\n\n"
+            f"Problem: {ptype}\nReference Date: {date_str}\n\n"
+            "Please check.\n\nBest regards,\nDAV Digital Team"
+        )
+    return urllib.parse.quote(subject), urllib.parse.quote(body)
 
 
 @app.route("/")
@@ -355,7 +587,7 @@ def login():
             flash("Erfolgreich eingeloggt.", "success")
             return redirect(next_url)
 
-        flash("Ungültiges Passwort.", "error")
+        flash("Ungueltiges Passwort.", "error")
 
     next_url = request.args.get("next", "")
     if not is_safe_redirect_target(next_url):
@@ -376,10 +608,11 @@ def logout():
 def new_ticket():
     if request.method == "POST":
         isbn = (request.form.get("isbn") or "").strip()
-        problem_type = request.form.get("problem_type")
+        problem_type = normalize_problem_type(request.form.get("problem_type"))
         description = (request.form.get("description") or "").strip()
         contact_date = request.form.get("initial_contact_date")
         created_by = request.form.get("created_by")
+        assigned_to = request.form.get("assigned_to")
         portals_list = request.form.getlist("portals")
         affected_portals = ", ".join(portals_list) if portals_list else ""
 
@@ -401,6 +634,7 @@ def new_ticket():
             author = meta.get("Autor", author)
 
         deadline = creation_date + timedelta(days=5 if problem_type == "Titel nicht online" else 14)
+        now_iso = datetime.now().isoformat(timespec="seconds")
 
         conn = None
         try:
@@ -417,18 +651,17 @@ def new_ticket():
                     intersection = new_portals_set.intersection(existing_set)
                     if intersection:
                         flash(
-                            f"STOP: Ein offenes Ticket für diese ISBN und das Problem '{problem_type}' existiert bereits für: {', '.join(sorted(intersection))}.",
+                            f"STOP: Ein offenes Ticket fuer diese ISBN und das Problem '{problem_type}' existiert bereits fuer: {', '.join(sorted(intersection))}.",
                             "error",
                         )
                         return redirect(url_for("new_ticket"))
 
-            now_iso = datetime.now().isoformat(timespec="seconds")
             conn.execute(
                 """
                 INSERT INTO tickets
                 (creation_date, problem_type, description, isbn, deadline, initial_contact_date, title, status,
-                 created_by, affected_portals, author, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_by, affected_portals, author, updated_at, assigned_to, batch_label)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     creation_date.isoformat(),
@@ -443,6 +676,8 @@ def new_ticket():
                     affected_portals,
                     author,
                     now_iso,
+                    assigned_to,
+                    "",
                 ),
             )
             conn.commit()
@@ -455,11 +690,12 @@ def new_ticket():
                     "isbn": isbn,
                     "problem_type": problem_type,
                     "affected_portals": affected_portals,
+                    "assigned_to": assigned_to,
                     "deadline": deadline,
                     "description": description,
                 }
             )
-            flash(f"Ticket für '{title}' erfolgreich angelegt.", "success")
+            flash(f"Ticket fuer '{title}' erfolgreich angelegt.", "success")
             return redirect(url_for("new_ticket"))
         except Exception as e:
             flash(f"Fehler beim Speichern: {str(e)}", "error")
@@ -486,6 +722,46 @@ def api_metadata(isbn):
     return jsonify({"found": False})
 
 
+def render_dashboard(admin_mode):
+    sort_order = request.args.get("sort", "asc")
+    order_clause = "ORDER BY deadline DESC, id DESC" if sort_order == "desc" else "ORDER BY deadline ASC, id ASC"
+    conn = get_db_connection()
+    try:
+        comment_counts = get_comment_counts(conn)
+        if request.path == "/archive":
+            cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM tickets
+                WHERE status = 'erledigt' AND completion_date >= ?
+                ORDER BY completion_date DESC, id DESC
+                """,
+                (cutoff_date,),
+            ).fetchall()
+            view_mode = "archive"
+        else:
+            rows = conn.execute(f'SELECT * FROM tickets WHERE status = "offen" {order_clause}').fetchall()
+            view_mode = "open"
+
+        tickets = [enrich_ticket(row, comment_counts.get(row["id"], 0)) for row in rows]
+    except sqlite3.OperationalError as e:
+        flash(f"Datenbankfehler: {e}", "error")
+        tickets = []
+        view_mode = "open"
+    finally:
+        conn.close()
+
+    return render_template(
+        "dashboard.html",
+        tickets=tickets,
+        view_mode=view_mode,
+        now=datetime.now().strftime("%Y-%m-%d"),
+        sort_order=sort_order,
+        admin_mode=admin_mode,
+    )
+
+
 @app.route("/dashboard")
 @requires_auth
 def dashboard():
@@ -501,6 +777,12 @@ def admin_dashboard():
     return render_dashboard(admin_mode=True)
 
 
+@app.route("/archive")
+@requires_auth
+def archive():
+    return render_dashboard(admin_mode=bool(session.get("admin_mode")))
+
+
 @app.route("/exit_admin", methods=["POST"])
 @requires_auth
 def exit_admin():
@@ -508,57 +790,22 @@ def exit_admin():
     return redirect(url_for("dashboard"))
 
 
-def render_dashboard(admin_mode):
-    sort_order = request.args.get("sort", "asc")
-    order_clause = "ORDER BY deadline DESC" if sort_order == "desc" else "ORDER BY deadline ASC"
-    conn = get_db_connection()
-    try:
-        tickets = conn.execute(f'SELECT * FROM tickets WHERE status = "offen" {order_clause}').fetchall()
-    except sqlite3.OperationalError as e:
-        flash(f"Datenbankfehler: {e}", "error")
-        tickets = []
-    finally:
-        conn.close()
-
-    return render_template(
-        "dashboard.html",
-        tickets=tickets,
-        view_mode="open",
-        now=datetime.now().strftime("%Y-%m-%d"),
-        sort_order=sort_order,
-        admin_mode=admin_mode,
-    )
-
-
-@app.route("/archive")
-@requires_auth
-def archive():
-    conn = get_db_connection()
-    try:
-        cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-        tickets = conn.execute(
-            'SELECT * FROM tickets WHERE status = "erledigt" AND completion_date >= ? ORDER BY completion_date DESC, id DESC',
-            (cutoff_date,),
-        ).fetchall()
-    except sqlite3.OperationalError as e:
-        flash(f"Datenbankfehler: {e}", "error")
-        tickets = []
-    finally:
-        conn.close()
-
-    return render_template("dashboard.html", tickets=tickets, view_mode="archive", now=datetime.now().strftime("%Y-%m-%d"))
-
-
 @app.route("/ticket/<int:id>/complete", methods=["POST"])
 @requires_auth
 def complete_ticket(id):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE tickets SET status = ?, completion_date = ?, updated_at = ? WHERE id = ?",
-        ("erledigt", datetime.now().date().isoformat(), datetime.now().isoformat(timespec="seconds"), id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            """
+            UPDATE tickets
+            SET status = ?, completion_date = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            ("erledigt", datetime.now().date().isoformat(), datetime.now().isoformat(timespec="seconds"), id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     flash("Ticket als erledigt markiert.", "success")
     return redirect(url_for("dashboard"))
 
@@ -567,13 +814,19 @@ def complete_ticket(id):
 @requires_auth
 def reopen_ticket(id):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE tickets SET status = ?, completion_date = NULL, deadline = ?, updated_at = ? WHERE id = ?",
-        ("offen", extend_deadline_from_today(), datetime.now().isoformat(timespec="seconds"), id),
-    )
-    conn.commit()
-    conn.close()
-    flash("Ticket wiedereröffnet und Deadline um 5 Tage verlängert.", "success")
+    try:
+        conn.execute(
+            """
+            UPDATE tickets
+            SET status = ?, completion_date = NULL, deadline = ?, updated_at = ?, batch_label = ''
+            WHERE id = ?
+            """,
+            ("offen", (datetime.now().date() + timedelta(days=5)).isoformat(), datetime.now().isoformat(timespec="seconds"), id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Ticket wiedereroeffnet und Deadline um 5 Tage verlaengert.", "success")
     return redirect(url_for("archive"))
 
 
@@ -581,47 +834,37 @@ def reopen_ticket(id):
 @requires_admin_mode
 def delete_ticket(id):
     conn = get_db_connection()
-    conn.execute("DELETE FROM tickets WHERE id = ?", (id,))
-    conn.commit()
-    conn.close()
-    flash("Ticket gelöscht.", "info")
+    try:
+        conn.execute("DELETE FROM tickets WHERE id = ?", (id,))
+        conn.execute("DELETE FROM ticket_comments WHERE ticket_id = ?", (id,))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Ticket geloescht.", "info")
     return redirect(url_for("dashboard"))
 
 
-def generate_mail_content(ticket):
-    title = ticket["title"] or "Unknown Title"
-    isbn = ticket["isbn"] or "Unknown ISBN"
-    ptype = ticket["problem_type"]
-    init_date = ticket["initial_contact_date"]
-    date_str = init_date if isinstance(init_date, str) else (init_date.strftime("%d.%m.%Y") if init_date else "N/A")
+@app.route("/tickets/batch/stuck", methods=["POST"])
+@requires_auth
+def bulk_mark_stuck():
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE tickets
+            SET batch_label = 'Stuck', updated_at = ?
+            WHERE status = 'offen'
+            """,
+            (datetime.now().isoformat(timespec="seconds"),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
-    if ptype == "Preisänderung":
-        subject = f"[change request] price change - {title} - {isbn}"
-        body = (
-            "Dear Audible Team,\n\n"
-            f"On {date_str}, I submitted a price change request for...\n\n"
-            f"ISBN: {isbn}\nTitle: {title}\n\n"
-            "Please process immediately.\n\nBest regards,\nDoro"
-        )
-    elif ptype == "Titel nicht online":
-        subject = f"[title not online] - {title} - {isbn}"
-        body = (
-            "Dear Audible Team,\n\n"
-            f"The title {title} ({isbn}) is still not online.\n"
-            f"Release Date was supposed to be around {date_str}.\n\n"
-            "Please check.\n\nBest regards,\nDoro"
-        )
-    else:
-        subject = f"Audible Issue: {ptype} - {title}"
-        body = (
-            "Hello Audible Team,\n\n"
-            "We have an issue regarding:\n"
-            f"Title: {title}\nISBN: {isbn}\n\n"
-            f"Problem: {ptype}\nReference Date: {date_str}\n\n"
-            "Please check.\n\nBest regards,\nDAV Digital Team"
-        )
-
-    return urllib.parse.quote(subject), urllib.parse.quote(body)
+    flash("Alle aktuell sichtbaren offenen Tickets wurden auf 'Stuck' gesetzt.", "success")
+    if session.get("admin_mode"):
+        return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/ticket/<int:id>/edit", methods=["GET", "POST"])
@@ -630,25 +873,23 @@ def edit_ticket(id):
     conn = get_db_connection()
 
     if request.method == "POST":
-        portals_list = request.form.getlist("portals")
-        comment_text = request.form.get("admin_comment", "")
         existing_ticket = conn.execute("SELECT * FROM tickets WHERE id = ?", (id,)).fetchone()
         if not existing_ticket:
             conn.close()
             flash("Ticket nicht gefunden.", "error")
             return redirect(url_for("dashboard"))
 
+        portals_list = request.form.getlist("portals")
         new_status = request.form.get("status")
-        updated_description = (request.form.get("description") or "").strip()
-        comment_block = get_comment_block(comment_text)
-        last_comment_at = existing_ticket["last_comment_at"]
-        if comment_block:
-            updated_description = f"{updated_description}\n\n{comment_block}".strip()
-            last_comment_at = datetime.now().isoformat(timespec="seconds")
-
         new_deadline = request.form.get("deadline")
+        assigned_to = request.form.get("assigned_to")
+        batch_label = normalize_batch_label(request.form.get("batch_label"))
+        problem_type = normalize_problem_type(request.form.get("problem_type"))
+        comment_author = request.form.get("comment_author") or assigned_to or session.get("user_name") or "Admin"
+        comment_added = False
+
         if new_status == "offen":
-            new_deadline = extend_deadline_from_today()
+            new_deadline = (datetime.now().date() + timedelta(days=5)).isoformat()
 
         completion_date = existing_ticket["completion_date"]
         if new_status == "erledigt":
@@ -662,7 +903,7 @@ def edit_ticket(id):
                 UPDATE tickets
                 SET title = ?, author = ?, isbn = ?, status = ?, problem_type = ?, description = ?,
                     deadline = ?, initial_contact_date = ?, affected_portals = ?, completion_date = ?,
-                    updated_at = ?, last_comment_at = ?
+                    updated_at = ?, assigned_to = ?, batch_label = ?
                 WHERE id = ?
                 """,
                 (
@@ -670,22 +911,29 @@ def edit_ticket(id):
                     request.form.get("author"),
                     request.form.get("isbn"),
                     new_status,
-                    request.form.get("problem_type"),
-                    updated_description,
+                    problem_type,
+                    (request.form.get("description") or "").strip(),
                     new_deadline,
                     request.form.get("initial_contact_date"),
                     ", ".join(portals_list) if portals_list else "",
                     completion_date,
                     datetime.now().isoformat(timespec="seconds"),
-                    last_comment_at,
+                    assigned_to,
+                    batch_label,
                     id,
                 ),
             )
+
+            if request.form.get("admin_comment", "").strip():
+                comment_added = add_ticket_comment(conn, id, comment_author, request.form.get("admin_comment"))
+
             conn.commit()
-            if comment_block and new_status == "offen":
-                flash("Ticket aktualisiert, Kommentar ergänzt und Deadline um 5 Tage verlängert.", "success")
+            if comment_added and new_status == "offen":
+                flash("Ticket aktualisiert, Kommentar gespeichert und Deadline um 5 Tage verlaengert.", "success")
+            elif comment_added:
+                flash("Ticket aktualisiert und Kommentar gespeichert.", "success")
             elif new_status == "offen":
-                flash("Ticket aktualisiert und Deadline um 5 Tage verlängert.", "success")
+                flash("Ticket aktualisiert und Deadline um 5 Tage verlaengert.", "success")
             else:
                 flash("Ticket erfolgreich aktualisiert.", "success")
         except Exception as e:
@@ -693,7 +941,7 @@ def edit_ticket(id):
         finally:
             conn.close()
 
-        return redirect(url_for("admin_dashboard") if session.get("admin_mode") else url_for("dashboard"))
+        return redirect(url_for("admin_dashboard"))
 
     ticket = conn.execute("SELECT * FROM tickets WHERE id = ?", (id,)).fetchone()
     conn.close()
@@ -701,21 +949,21 @@ def edit_ticket(id):
         flash("Ticket nicht gefunden.", "error")
         return redirect(url_for("dashboard"))
 
-    t_dict = dict(ticket)
-    subj, body = generate_mail_content(t_dict)
+    ticket_data = enrich_ticket(ticket, len(get_ticket_comments(id)))
+    comments = get_ticket_comments(id)
+    mail_subject, mail_body = generate_mail_content(ticket_data)
     config = load_config()
-    auto_update_enabled = config.get("metadata_auto_update_enabled", True)
-    auto_update_message = config.get("metadata_auto_last_message") or METADATA_AUTO_UPDATE_STATE["last_message"]
-    auto_update_last_run = config.get("metadata_auto_last_run")
 
     return render_template(
         "edit_ticket.html",
-        ticket=t_dict,
-        mail_subject=subj,
-        mail_body=body,
-        auto_update_enabled=auto_update_enabled,
-        auto_update_message=auto_update_message,
-        auto_update_last_run=auto_update_last_run,
+        ticket=ticket_data,
+        comments=comments,
+        mail_subject=mail_subject,
+        mail_body=mail_body,
+        auto_update_enabled=config.get("metadata_auto_update_enabled", True),
+        auto_update_message=config.get("metadata_auto_last_message") or METADATA_AUTO_UPDATE_STATE["last_message"],
+        auto_update_last_run=config.get("metadata_auto_last_run_at") or METADATA_AUTO_UPDATE_STATE["last_run_at"],
+        auto_update_time=normalize_metadata_update_time(config.get("metadata_auto_update_time")),
     )
 
 
@@ -730,6 +978,7 @@ def settings():
                 config[key] = val.strip()
 
         config["metadata_auto_update_enabled"] = request.form.get("metadata_auto_update_enabled") == "on"
+        config["metadata_auto_update_time"] = normalize_metadata_update_time(request.form.get("metadata_auto_update_time"))
 
         if save_config(config):
             flash("Einstellungen erfolgreich gespeichert.", "success")
@@ -737,11 +986,8 @@ def settings():
             flash("Fehler beim Speichern der Einstellungen.", "error")
         return redirect(url_for("settings"))
 
-    return render_template(
-        "settings.html",
-        config=config,
-        auto_update_state=METADATA_AUTO_UPDATE_STATE,
-    )
+    config["metadata_auto_update_time"] = normalize_metadata_update_time(config.get("metadata_auto_update_time"))
+    return render_template("settings.html", config=config, auto_update_state=METADATA_AUTO_UPDATE_STATE)
 
 
 @app.route("/settings/update_metadata", methods=["POST"])

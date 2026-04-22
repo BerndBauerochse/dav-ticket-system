@@ -15,15 +15,26 @@
         </div>
     </div>
 
-    <div class="flex bg-neutral-800 rounded-lg p-1 border border-gray-700">
-        <a href="/dashboard"
-            class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'open' %}bg-audible-accent text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
-            Offen
-        </a>
-        <a href="/archive"
-            class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'archive' %}bg-white/20 text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
-            Erledigt
-        </a>
+    <div class="flex flex-wrap items-center gap-3">
+        {% if view_mode == 'open' %}
+        <form action="{{ url_for('bulk_mark_stuck') }}" method="POST">
+            <button type="submit"
+                class="px-4 py-2 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 transition text-sm font-medium">
+                Alle sichtbaren auf Stuck
+            </button>
+        </form>
+        {% endif %}
+
+        <div class="flex bg-neutral-800 rounded-lg p-1 border border-gray-700">
+            <a href="/dashboard"
+                class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'open' %}bg-audible-accent text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
+                Offen
+            </a>
+            <a href="/archive"
+                class="px-4 py-2 rounded-md text-sm font-medium transition {% if view_mode == 'archive' %}bg-white/20 text-white shadow{% else %}text-gray-400 hover:text-white{% endif %}">
+                Erledigt
+            </a>
+        </div>
     </div>
 </div>
 
@@ -46,10 +57,13 @@
                         Deadline
                         {% endif %}
                     </th>
-                    <th class="p-4 font-medium border-b border-gray-700">Wer</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Erstellt</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Verantwortlich</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Batch</th>
                     <th class="p-4 font-medium border-b border-gray-700">ISBN / Titel</th>
                     <th class="p-4 font-medium border-b border-gray-700">Problem</th>
                     <th class="p-4 font-medium border-b border-gray-700">Portale</th>
+                    <th class="p-4 font-medium border-b border-gray-700">Kommentare</th>
                     <th class="p-4 font-medium border-b border-gray-700">Beschreibung</th>
                     <th class="p-4 font-medium border-b border-gray-700 w-32">Aktionen</th>
                 </tr>
@@ -58,16 +72,23 @@
                 {% for ticket in tickets %}
                 <tr class="hover:bg-white/5 transition group">
                     <td class="p-4 text-gray-500 font-mono">#{{ ticket.id }}</td>
-                    <td
-                        class="p-4 font-medium whitespace-nowrap {% if ticket.deadline and ticket.deadline < now and view_mode == 'open' %}text-red-400{% else %}text-gray-300{% endif %}">
+                    <td class="p-4 font-medium whitespace-nowrap {% if ticket.deadline and ticket.deadline < now and view_mode == 'open' %}text-red-400{% else %}text-gray-300{% endif %}">
                         {% if view_mode == 'archive' and ticket.completion_date %}
                         <span class="text-green-500" title="Erledigt am">Fertig {{ ticket.completion_date }}</span>
                         {% else %}
                         {{ ticket.deadline }}
                         {% endif %}
                     </td>
-                    <td class="p-4 text-white font-medium">
-                        {{ ticket.created_by if ticket.created_by else '-' }}
+                    <td class="p-4 text-white font-medium">{{ ticket.created_by if ticket.created_by else '-' }}</td>
+                    <td class="p-4 text-white font-medium">{{ ticket.assigned_to if ticket.assigned_to else '-' }}</td>
+                    <td class="p-4">
+                        {% if ticket.effective_batch %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {% if ticket.effective_batch == 'Stuck' %}bg-amber-900/40 text-amber-300 border border-amber-700{% else %}bg-red-900/40 text-red-300 border border-red-700{% endif %}">
+                            {{ ticket.effective_batch }}
+                        </span>
+                        {% else %}
+                        <span class="text-gray-600">-</span>
+                        {% endif %}
                     </td>
                     <td class="p-4 max-w-xs">
                         <div class="font-bold text-white truncate" title="{{ ticket.title }}">{{ ticket.title }}</div>
@@ -77,8 +98,7 @@
                         <div class="text-gray-500 font-mono text-xs">{{ ticket.isbn }}</div>
                     </td>
                     <td class="p-4">
-                        <span
-                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-200 border border-gray-700">
                             {{ ticket.problem_type }}
                         </span>
                     </td>
@@ -86,14 +106,20 @@
                         {% if ticket.affected_portals %}
                         <div class="flex flex-wrap gap-1">
                             {% for portal in ticket.affected_portals.split(',') %}
-                            <span
-                                class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-neutral-800 text-gray-400 border border-gray-700">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-neutral-800 text-gray-400 border border-gray-700">
                                 {{ portal.strip() }}
                             </span>
                             {% endfor %}
                         </div>
                         {% else %}
                         <span class="text-gray-600">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="p-4 text-gray-300">
+                        {% if ticket.comment_count %}
+                        {{ ticket.comment_count }}
+                        {% else %}
+                        <span class="text-gray-600">0</span>
                         {% endif %}
                     </td>
                     <td class="p-4 max-w-lg text-gray-400 text-sm leading-relaxed align-top">
@@ -137,7 +163,7 @@
                                 onsubmit="return confirm('Ticket wieder in offen verschieben?');">
                                 <button type="submit"
                                     class="p-2 bg-blue-900/30 text-blue-400 rounded hover:bg-blue-500 hover:text-white transition"
-                                    title="Wiedereröffnen">
+                                    title="Wiedereroeffnen">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
                                         viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -149,10 +175,10 @@
 
                             {% if admin_mode %}
                             <form action="/ticket/{{ ticket.id }}/delete" method="POST"
-                                onsubmit="return confirm('Wirklich löschen?');">
+                                onsubmit="return confirm('Wirklich loeschen?');">
                                 <button type="submit"
                                     class="p-2 bg-red-900/30 text-red-400 rounded hover:bg-red-500 hover:text-white transition"
-                                    title="Löschen">
+                                    title="Loeschen">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
                                         viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -166,7 +192,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="p-12 text-center text-gray-500">
+                    <td colspan="11" class="p-12 text-center text-gray-500">
                         Keine Tickets gefunden.
                     </td>
                 </tr>
