@@ -1,26 +1,24 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
-    <div class="flex justify-between items-center mb-8">
-        <h1 class="text-3xl font-bold text-white">Ticket bearbeiten <span class="text-gray-500 text-lg">#{{ ticket['id']
-                }}</span></h1>
+<div class="max-w-5xl mx-auto">
+    <div class="flex justify-between items-center mb-8 gap-4">
+        <h1 class="text-3xl font-bold text-white">
+            Ticket bearbeiten <span class="text-gray-500 text-lg">#{{ ticket['id'] }}</span>
+        </h1>
         <div class="space-x-4">
             <a href="{{ url_for('dashboard') }}" class="text-gray-400 hover:text-white transition">Abbrechen</a>
             <button type="submit" form="editForm"
-                class="bg-audible-orange hover:bg-orange-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition transform hover:-translate-y-0.5">
+                class="bg-audible-accent hover:bg-audible-hover text-white font-bold py-2 px-6 rounded-lg shadow-lg transition">
                 Speichern
             </button>
         </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-
-        <!-- Linke Spalte: Hauptformular -->
         <div class="md:col-span-2 space-y-6">
             <form id="editForm" action="{{ url_for('edit_ticket', id=ticket['id']) }}" method="POST" class="space-y-6">
 
-                <!-- Titel & Status -->
                 <div class="glass p-6 rounded-xl border border-white/10">
                     <h2 class="text-xl font-bold text-audible-accent mb-4">Basisdaten</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -43,28 +41,22 @@
                             <label class="block text-gray-400 text-sm mb-1">Status</label>
                             <select name="status"
                                 class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
-                                <option value="offen" {% if ticket['status']=='offen' %}selected{% endif %}>Offen
-                                </option>
-                                <option value="erledigt" {% if ticket['status']=='erledigt' %}selected{% endif %}>
-                                    Erledigt</option>
+                                <option value="offen" {% if ticket['status']=='offen' %}selected{% endif %}>Offen</option>
+                                <option value="erledigt" {% if ticket['status']=='erledigt' %}selected{% endif %}>Erledigt</option>
                             </select>
                         </div>
                     </div>
                 </div>
 
-                <!-- Problem & Beschreibung -->
                 <div class="glass p-6 rounded-xl border border-white/10">
-                    <h2 class="text-xl font-bold text-audible-accent mb-4">Problem Details</h2>
+                    <h2 class="text-xl font-bold text-audible-accent mb-4">Problem-Details</h2>
 
                     <div class="mb-4">
                         <label class="block text-gray-400 text-sm mb-1">Problemtyp</label>
                         <select name="problem_type"
                             class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
-                            {% for type in ['Preisänderung', 'Titel nicht online', 'Audioanpassung', 'Rezension
-                            löschen', 'Cover Austausch', 'Meldung nicht online', 'Metadaten ändern', 'Takedown',
-                            'Sonstiges'] %}
-                            <option value="{{ type }}" {% if ticket['problem_type']==type %}selected{% endif %}>{{ type
-                                }}</option>
+                            {% for type in ['Preisänderung', 'Titel nicht online', 'Audioanpassung', 'Rezension löschen', 'Cover Austausch', 'Meldung nicht online', 'Metadaten ändern', 'Takedown', 'TOC fehlt', 'Sonstiges'] %}
+                            <option value="{{ type }}" {% if ticket['problem_type']==type %}selected{% endif %}>{{ type }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -75,11 +67,22 @@
                             class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none font-mono text-sm leading-relaxed">{{ ticket['description'] }}</textarea>
                     </div>
 
+                    <div class="mb-4">
+                        <label class="block text-gray-400 text-sm mb-1">Neuer Kommentar</label>
+                        <textarea name="admin_comment" rows="4"
+                            class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none text-sm leading-relaxed"
+                            placeholder="Kommentar ergänzen ..."></textarea>
+                        <p class="text-xs text-gray-500 mt-2">
+                            Beim Speichern wird der Kommentar an die Beschreibung angehängt. Offene Tickets bekommen dabei automatisch eine neue Deadline in 5 Tagen.
+                        </p>
+                    </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-gray-400 text-sm mb-1">Deadline</label>
                             <input type="date" name="deadline" value="{{ ticket['deadline'] }}"
                                 class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-audible-accent focus:outline-none">
+                            <p class="text-xs text-gray-500 mt-2">Wird bei offenen Tickets beim Speichern automatisch auf heute + 5 Tage gesetzt.</p>
                         </div>
                         <div>
                             <label class="block text-gray-400 text-sm mb-1">Erstkontakt</label>
@@ -89,32 +92,23 @@
                     </div>
                 </div>
 
-                <!-- Portale -->
                 <div class="glass p-6 rounded-xl border border-white/10">
                     <h2 class="text-xl font-bold text-audible-accent mb-4">Betroffene Portale</h2>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {% set active_portals = ticket['affected_portals'].split(', ') if ticket['affected_portals']
-                        else [] %}
-                        {% for portal in ['Audible', 'Spotify', 'Thalia', 'BookBeat', 'Apple', 'Google', 'DAV',
-                        'Divibib', 'RTL+'] %}
-                        <label
-                            class="flex items-center space-x-2 cursor-pointer hover:bg-white/5 p-2 rounded transition">
-                            <input type="checkbox" name="portals" value="{{ portal }}" {% if portal in active_portals
-                                %}checked{% endif %}
+                        {% set active_portals = ticket['affected_portals'].split(', ') if ticket['affected_portals'] else [] %}
+                        {% for portal in ['Audible', 'Spotify', 'Thalia', 'BookBeat', 'Apple', 'Google', 'DAV', 'Divibib', 'RTL+'] %}
+                        <label class="flex items-center space-x-2 cursor-pointer hover:bg-white/5 p-2 rounded transition">
+                            <input type="checkbox" name="portals" value="{{ portal }}" {% if portal in active_portals %}checked{% endif %}
                                 class="form-checkbox text-audible-accent rounded bg-white/10 border-white/20 focus:ring-0 focus:ring-offset-0 h-4 w-4">
                             <span class="text-sm text-gray-300">{{ portal }}</span>
                         </label>
                         {% endfor %}
                     </div>
                 </div>
-
             </form>
         </div>
 
-        <!-- Rechte Spalte: Aktionen -->
         <div class="space-y-6">
-
-            <!-- Mail Box -->
             <div class="glass p-6 rounded-xl border border-white/10 bg-gradient-to-br from-blue-900/20 to-transparent">
                 <h2 class="text-xl font-bold text-blue-400 mb-4 flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
@@ -124,12 +118,11 @@
                     </svg>
                     Mail-Aktionen
                 </h2>
-                <p class="text-sm text-gray-400 mb-4">Erstelle eine vorformulierte E-Mail basierend auf dem Problemtyp.
-                </p>
+                <p class="text-sm text-gray-400 mb-4">Erstellt eine vorformulierte E-Mail basierend auf dem Problemtyp.</p>
 
                 <a href="mailto:?subject={{ mail_subject }}&body={{ mail_body }}" target="_blank"
                     class="block w-full text-center bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-lg transition mb-2">
-                    Mail öffnen (Outlook/App)
+                    Mail öffnen
                 </a>
 
                 <div class="text-xs text-gray-500 mt-2 text-center">
@@ -137,7 +130,16 @@
                 </div>
             </div>
 
-
+            <div class="glass p-6 rounded-xl border border-white/10">
+                <h2 class="text-xl font-bold text-audible-accent mb-4">Metadaten-Update</h2>
+                <div class="text-sm text-gray-300 space-y-2">
+                    <p>Automatik: <span class="{% if auto_update_enabled %}text-green-400{% else %}text-yellow-400{% endif %}">
+                        {% if auto_update_enabled %}aktiv{% else %}deaktiviert{% endif %}
+                    </span></p>
+                    <p>Letzter Lauf: {{ auto_update_last_run or 'noch nicht ausgeführt' }}</p>
+                    <p class="text-gray-400">{{ auto_update_message }}</p>
+                </div>
+            </div>
 
             <div class="glass p-6 rounded-xl border border-red-900/20">
                 <h2 class="text-xl font-bold text-red-500 mb-4">Gefahrenzone</h2>
@@ -145,11 +147,10 @@
                     onsubmit="return confirm('Wirklich unwiderruflich löschen?');">
                     <button type="submit"
                         class="w-full border border-red-500/30 text-red-400 hover:bg-red-500/10 py-2 px-4 rounded-lg transition">
-                        Ticket Löschen
+                        Ticket löschen
                     </button>
                 </form>
             </div>
-
         </div>
     </div>
 </div>

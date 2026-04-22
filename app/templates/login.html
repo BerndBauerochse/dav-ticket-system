@@ -9,18 +9,8 @@
                 <p class="text-gray-400">Bitte melde dich an, um fortzufahren.</p>
             </div>
 
-            {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-            {% for category, message in messages %}
-            <div
-                class="mb-6 p-4 rounded-xl {% if category == 'error' %}bg-red-500/20 text-red-200 border border-red-500/30{% else %}bg-green-500/20 text-green-200 border border-green-500/30{% endif %}">
-                {{ message }}
-            </div>
-            {% endfor %}
-            {% endif %}
-            {% endwith %}
-
             <form action="{{ url_for('login') }}" method="POST" class="space-y-6">
+                <input type="hidden" name="next" value="{{ next_url }}">
                 <div>
                     <label for="password" class="block text-sm font-medium text-gray-300 mb-2">Passwort</label>
                     <input type="password" id="password" name="password" required
@@ -29,7 +19,7 @@
 
                 <div class="pt-2">
                     <button type="submit"
-                        class="w-full bg-gradient-to-r from-audible-orange to-audible-accent text-white font-bold py-3 px-6 rounded-xl hover:shadow-lg hover:shadow-audible-orange/20 transition-all duration-300 transform hover:-translate-y-0.5">
+                        class="w-full bg-gradient-to-r from-red-700 to-audible-accent text-white font-bold py-3 px-6 rounded-xl hover:shadow-lg hover:shadow-red-900/20 transition-all duration-300">
                         Anmelden
                     </button>
                 </div>
@@ -37,7 +27,7 @@
         </div>
 
         <div class="text-center mt-6">
-            <a href="/" class="text-gray-500 hover:text-white transition-colors text-sm">← Zurück zur Startseite</a>
+            <a href="/" class="text-gray-500 hover:text-white transition-colors text-sm">Zurück zur Startseite</a>
         </div>
     </div>
 </div>
