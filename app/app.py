@@ -585,18 +585,17 @@ def parse_metadata_date(value):
 def create_missing_portal_tickets():
     """Legt Tickets 'Titel nicht online' an, wenn der ET erreicht ist, aber der Portal-Link (Audible/Spotify) fehlt.
 
-    Gibt {portal: anzahl} zurueck.
+    Gibt einen kurzen Bericht zurueck (wird nach dem Metadaten-Update angezeigt).
     """
     meta_conn = get_metadata_connection()
     if not meta_conn:
-        return {}
+        return "Auto-Tickets: keine Metadaten-DB gefunden."
     try:
         cursor = meta_conn.execute("SELECT * FROM metadata")
         columns = [d[0] for d in cursor.description]
         cols = detect_metadata_columns(columns)
         if not cols["release"]:
-            print("Auto-Tickets: keine ET-Spalte in den Metadaten gefunden.")
-            return {}
+            return "Auto-Tickets: keine ET-Spalte in den Metadaten gefunden."
         rows = [dict(row) for row in cursor.fetchall()]
     finally:
         meta_conn.close()
@@ -626,20 +625,23 @@ def create_missing_portal_tickets():
         candidates.append((isbn, release_date, data))
 
     created = {}
+    report = [f"Auto-Tickets: {len(candidates)} Titel mit ET vor {AUTO_TICKET_GRACE_DAYS}-{AUTO_TICKET_LOOKBACK_DAYS} Tagen"]
     conn = get_db_connection()
     try:
         for portal, shop in AUTO_TICKET_PORTALS.items():
             # Ohne Link-Spalte fuer das Portal wuerde jeder Titel als "nicht online" gelten
             if not any(shop in c.lower() for c in columns):
-                print(f"Auto-Tickets: keine {portal}-Spalte in den Metadaten, {portal} wird uebersprungen.")
+                report.append(f"{portal}: keine Link-Spalte in den Metadaten")
                 continue
 
+            missing = existing_count = 0
             for isbn, release_date, data in candidates:
                 exclusive = field(data, exclusive_col)
                 if exclusive and exclusive.lower() != portal.lower():
                     continue
                 if extract_shop_link(data, shop):
                     continue
+                missing += 1
 
                 existing = conn.execute(
                     """
@@ -649,6 +651,7 @@ def create_missing_portal_tickets():
                     (isbn, f"%{portal}%"),
                 ).fetchone()
                 if existing:
+                    existing_count += 1
                     continue
 
                 title = (data.get(cols["title"]) if cols["title"] else None) or "Unbekannter Titel"
@@ -679,6 +682,9 @@ def create_missing_portal_tickets():
                     ),
                 )
                 created.setdefault(portal, []).append(f"{title} ({isbn}), ET {release_date.strftime('%d.%m.%Y')}")
+            report.append(
+                f"{portal}: {missing} ohne Link, davon {existing_count} schon mit Ticket, {len(created.get(portal, []))} neu"
+            )
         conn.commit()
     finally:
         conn.close()
@@ -690,7 +696,7 @@ def create_missing_portal_tickets():
             text=f"ET seit mindestens {AUTO_TICKET_GRACE_DAYS} Tagen erreicht, aber noch kein {portal}-Link:\n"
             + "\n".join(f"- {t}" for t in titles),
         )
-    return {portal: len(titles) for portal, titles in created.items()}
+    return " | ".join(report)
 
 
 def update_ticket_metadata_refresh(force=False):
@@ -714,12 +720,10 @@ def update_ticket_metadata_refresh(force=False):
         finally:
             conn.close()
         try:
-            auto_counts = create_missing_portal_tickets()
-            if auto_counts:
-                summary = ", ".join(f"{count}x {portal}" for portal, count in auto_counts.items())
-                message = f"{message} Automatisch angelegt 'Titel nicht online': {summary}."
+            message = f"{message} {create_missing_portal_tickets()}"
         except Exception as e:
             print(f"Fehler bei Auto-Tickets: {e}")
+            message = f"{message} Auto-Tickets: Fehler {e}"
 
     config["metadata_auto_last_run"] = today
     config["metadata_auto_last_run_at"] = now.strftime("%d.%m.%Y %H:%M")
