@@ -32,7 +32,8 @@
         </div>
 
         <div class="space-y-2">
-            <label for="teams_webhook" class="block text-sm font-medium text-gray-300">Microsoft Teams Webhook</label>
+            <label for="teams_webhook" class="block text-sm font-medium text-gray-300">Microsoft Teams Webhook (Workflows)</label>
+            <p class="text-xs text-gray-500">URL aus dem Teams-Workflow „Post to a channel when a webhook request is received“. Alte Office-365-Connector-URLs funktionieren nicht mehr.</p>
             <input type="text" id="teams_webhook" name="teams_webhook" value="{{ config.get('teams_webhook', '') }}"
                 placeholder="https://..."
                 class="w-full bg-neutral-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-audible-accent focus:border-transparent transition font-mono text-sm">

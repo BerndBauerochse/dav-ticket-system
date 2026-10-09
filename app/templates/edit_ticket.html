@@ -111,7 +111,7 @@
                     <h2 class="text-xl font-bold text-audible-accent mb-4">Betroffene Portale</h2>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {% set active_portals = ticket['affected_portals'].split(', ') if ticket['affected_portals'] else [] %}
-                        {% for portal in ['Audible', 'Spotify', 'Thalia', 'BookBeat', 'Apple', 'Google', 'DAV', 'Divibib', 'RTL+'] %}
+                        {% for portal in portals %}
                         <label class="flex items-center space-x-2 cursor-pointer hover:bg-white/5 p-2 rounded transition">
                             <input type="checkbox" name="portals" value="{{ portal }}" {% if portal in active_portals %}checked{% endif %}
                                 class="form-checkbox text-audible-accent rounded bg-white/10 border-white/20 focus:ring-0 focus:ring-offset-0 h-4 w-4">

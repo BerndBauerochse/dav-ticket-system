@@ -87,7 +87,7 @@
             <div class="md:col-span-5 space-y-1">
                 <label class="block text-xs font-medium text-gray-400 uppercase mb-1">Portale</label>
                 <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                    {% for portal in ['Audible', 'Spotify', 'Thalia', 'BookBeat', 'Apple', 'Google', 'DAV', 'Divibib', 'RTL+'] %}
+                    {% for portal in portals %}
                     <label
                         class="inline-flex items-center space-x-2 cursor-pointer bg-neutral-800/50 hover:bg-neutral-800 p-1.5 rounded border border-gray-800 hover:border-gray-600 transition">
                         <input type="checkbox" name="portals" value="{{ portal }}"

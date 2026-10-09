@@ -21,6 +21,7 @@ CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 BACKGROUND_INTERVAL_SECONDS = 60
 DEFAULT_METADATA_UPDATE_TIME = "06:00"
 TEAM_MEMBERS = ["Doro", "Bernd"]
+PORTALS = ["Audible", "Spotify", "Storytel", "Thalia", "BookBeat", "Apple", "Google", "DAV", "Divibib", "RTL+"]
 BATCH_OPTIONS = ["", "Stuck"]
 PROBLEM_TYPE_ALIASES = {
     "Preisänderung": "Preisaenderung",
@@ -341,6 +342,7 @@ def inject_layout_defaults():
     return {
         "today": datetime.now().strftime("%Y"),
         "team_members": TEAM_MEMBERS,
+        "portals": PORTALS,
         "batch_options": BATCH_OPTIONS,
     }
 
@@ -429,29 +431,43 @@ def get_comment_counts(conn):
     return {row["ticket_id"]: row["comment_count"] for row in rows}
 
 
-def send_teams_card(title, facts, text, color="d21e40"):
+def send_teams_card(title, facts, text, color="attention"):
+    """Sendet eine Adaptive Card an einen Teams-Workflow-Webhook (Power Automate).
+
+    color: Adaptive-Card-Farbe des Titels ("attention" = rot, "warning" = orange, "good", "accent").
+    """
     config = load_config()
     webhook_url = config.get("teams_webhook")
     if not webhook_url:
         return False
 
+    card = {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "msteams": {"width": "Full"},
+        "body": [
+            {"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "color": color, "wrap": True},
+            {
+                "type": "FactSet",
+                "facts": [{"title": fact["name"].rstrip(":"), "value": str(fact["value"])} for fact in facts],
+            },
+            # Teams braucht Leerzeilen fuer sichtbare Zeilenumbrueche
+            {"type": "TextBlock", "text": text.replace("\r\n", "\n").replace("\n", "\n\n"), "wrap": True, "spacing": "Medium"},
+        ],
+    }
+    payload = {
+        "type": "message",
+        "attachments": [
+            {"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None, "content": card}
+        ],
+    }
+
     def _send():
         try:
-            payload = {
-                "@type": "MessageCard",
-                "@context": "http://schema.org/extensions",
-                "themeColor": color,
-                "summary": title,
-                "sections": [
-                    {
-                        "activityTitle": title,
-                        "facts": facts,
-                        "markdown": True,
-                        "text": text,
-                    }
-                ],
-            }
-            requests.post(webhook_url, json=payload, timeout=5)
+            response = requests.post(webhook_url, json=payload, timeout=10)
+            if response.status_code >= 300:
+                print(f"Teams-Webhook antwortet mit {response.status_code}: {response.text[:300]}")
         except Exception as e:
             print(f"Fehler beim Senden an Teams: {e}")
 
@@ -520,7 +536,7 @@ def send_due_ticket_reminders():
                 {"name": "Batch:", "value": compute_ticket_batch(ticket) or "-"},
             ]
             body = ticket.get("description") or "Keine Beschreibung hinterlegt."
-            sent = send_teams_card(title, facts, body, color="ff9f1c" if reminder_status == "due_soon" else "d21e40")
+            sent = send_teams_card(title, facts, body, color="warning" if reminder_status == "due_soon" else "attention")
             if sent:
                 conn.execute(
                     """
