@@ -20,6 +20,9 @@ DATA_DIR = os.environ.get("DATA_DIR", "/data")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 BACKGROUND_INTERVAL_SECONDS = 60
 DEFAULT_METADATA_UPDATE_TIME = "06:00"
+# Auto-Ticket "Titel nicht online": ET seit mind. GRACE Tagen erreicht, hoechstens LOOKBACK Tage her, kein Audible-Link
+AUTO_TICKET_GRACE_DAYS = 3
+AUTO_TICKET_LOOKBACK_DAYS = 14
 TEAM_MEMBERS = ["Doro", "Bernd"]
 PORTALS = ["Audible", "Spotify", "Storytel", "Thalia", "BookBeat", "Apple", "Google", "DAV", "Divibib", "RTL+"]
 BATCH_OPTIONS = ["", "Stuck"]
@@ -155,6 +158,23 @@ def requires_admin_mode(f):
     return decorated
 
 
+def detect_metadata_columns(columns):
+    def first(*tokens):
+        return next((c for c in columns if any(t in c.lower() for t in tokens)), None)
+
+    release_candidates = [c for c in columns if any(t in c.lower() for t in ("voe", "erschein", "release"))]
+    release_col = next((c for c in release_candidates if "digital" in c.lower()), None) or (
+        release_candidates[0] if release_candidates else None
+    )
+    return {
+        "isbn": first("ean", "isbn") or "EAN digital",
+        "title": first("titel", "title"),
+        "author": first("autor", "author", "artist"),
+        "cover": first("cover", "bild", "image"),
+        "release": release_col,
+    }
+
+
 def fetch_metadata_by_isbn(isbn):
     conn = None
     try:
@@ -167,19 +187,10 @@ def fetch_metadata_by_isbn(isbn):
         if cursor.description is None:
             return None
 
-        columns = [description[0] for description in cursor.description]
-        isbn_col = next((c for c in columns if "ean" in c.lower() or "isbn" in c.lower()), None)
-        title_col = next((c for c in columns if "titel" in c.lower() or "title" in c.lower()), None)
-        author_col = next(
-            (c for c in columns if "autor" in c.lower() or "author" in c.lower() or "artist" in c.lower()),
-            None,
-        )
-        cover_col = next((c for c in columns if "cover" in c.lower() or "bild" in c.lower() or "image" in c.lower()), None)
+        cols = detect_metadata_columns([description[0] for description in cursor.description])
+        title_col, author_col, cover_col = cols["title"], cols["author"], cols["cover"]
 
-        if not isbn_col:
-            isbn_col = "EAN digital"
-
-        cursor.execute(f'SELECT * FROM metadata WHERE "{isbn_col}" = ?', (str(isbn),))
+        cursor.execute(f'SELECT * FROM metadata WHERE "{cols["isbn"]}" = ?', (str(isbn),))
         row = cursor.fetchone()
         if not row:
             return None
@@ -552,6 +563,99 @@ def send_due_ticket_reminders():
         conn.close()
 
 
+def parse_metadata_date(value):
+    text = str(value or "").strip()[:10]
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def create_missing_audible_tickets():
+    """Legt Tickets 'Titel nicht online' an, wenn der ET erreicht ist, aber noch kein Audible-Link existiert."""
+    meta_conn = get_metadata_connection()
+    if not meta_conn:
+        return 0
+    try:
+        cursor = meta_conn.execute("SELECT * FROM metadata")
+        cols = detect_metadata_columns([d[0] for d in cursor.description])
+        if not cols["release"]:
+            print("Auto-Tickets: keine ET-Spalte in den Metadaten gefunden.")
+            return 0
+        rows = [dict(row) for row in cursor.fetchall()]
+    finally:
+        meta_conn.close()
+
+    today = datetime.now().date()
+    newest_release = today - timedelta(days=AUTO_TICKET_GRACE_DAYS)
+    oldest_release = today - timedelta(days=AUTO_TICKET_LOOKBACK_DAYS)
+
+    created = []
+    conn = get_db_connection()
+    try:
+        for data in rows:
+            isbn = str(data.get(cols["isbn"]) or "").strip()
+            release_date = parse_metadata_date(data.get(cols["release"]))
+            if not isbn or not release_date or not (oldest_release <= release_date <= newest_release):
+                continue
+            if extract_audible_link(data):
+                continue
+
+            existing = conn.execute(
+                """
+                SELECT 1 FROM tickets
+                WHERE isbn = ? AND problem_type = 'Titel nicht online' AND affected_portals LIKE '%Audible%'
+                """,
+                (isbn,),
+            ).fetchone()
+            if existing:
+                continue
+
+            title = (data.get(cols["title"]) if cols["title"] else None) or "Unbekannter Titel"
+            author = (data.get(cols["author"]) if cols["author"] else None) or ""
+            now_iso = datetime.now().isoformat(timespec="seconds")
+            conn.execute(
+                """
+                INSERT INTO tickets
+                (creation_date, problem_type, description, isbn, deadline, initial_contact_date, title, status,
+                 created_by, affected_portals, author, updated_at, assigned_to, batch_label, audible_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    today.isoformat(),
+                    "Titel nicht online",
+                    f"Automatisch angelegt: ET {release_date.strftime('%d.%m.%Y')} erreicht, aber noch kein Audible-Link.",
+                    isbn,
+                    (today + timedelta(days=5)).isoformat(),
+                    release_date.isoformat(),
+                    title,
+                    "offen",
+                    "System",
+                    "Audible",
+                    author,
+                    now_iso,
+                    "",
+                    "",
+                    "",
+                ),
+            )
+            created.append(f"{title} ({isbn}), ET {release_date.strftime('%d.%m.%Y')}")
+        conn.commit()
+    finally:
+        conn.close()
+
+    if created:
+        send_teams_card(
+            title=f"{len(created)} Titel nicht auf Audible online",
+            facts=[{"name": "Neue Tickets:", "value": str(len(created))}],
+            text=f"ET seit mindestens {AUTO_TICKET_GRACE_DAYS} Tagen erreicht, aber noch kein Audible-Link:\n"
+            + "\n".join(f"- {c}" for c in created),
+        )
+    return len(created)
+
+
 def update_ticket_metadata_refresh(force=False):
     config = load_config()
     auto_enabled = config.get("metadata_auto_update_enabled", True)
@@ -572,6 +676,12 @@ def update_ticket_metadata_refresh(force=False):
             conn.commit()
         finally:
             conn.close()
+        try:
+            auto_count = create_missing_audible_tickets()
+            if auto_count:
+                message = f"{message} {auto_count} Ticket(s) 'Titel nicht online' automatisch angelegt."
+        except Exception as e:
+            print(f"Fehler bei Auto-Tickets: {e}")
 
     config["metadata_auto_last_run"] = today
     config["metadata_auto_last_run_at"] = now.strftime("%d.%m.%Y %H:%M")
