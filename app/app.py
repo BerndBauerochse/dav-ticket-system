@@ -23,6 +23,8 @@ DEFAULT_METADATA_UPDATE_TIME = "06:00"
 # Auto-Ticket "Titel nicht online": ET seit mind. GRACE Tagen erreicht, hoechstens LOOKBACK Tage her, kein Audible-Link
 AUTO_TICKET_GRACE_DAYS = 3
 AUTO_TICKET_LOOKBACK_DAYS = 14
+# Portal -> Suchbegriff fuer Link-Spalte/URL in den Metadaten
+AUTO_TICKET_PORTALS = {"Audible": "audible", "Spotify": "spotify"}
 TEAM_MEMBERS = ["Doro", "Bernd"]
 PORTALS = ["Audible", "Spotify", "Storytel", "Thalia", "BookBeat", "Apple", "Google", "DAV", "Divibib", "RTL+"]
 BATCH_OPTIONS = ["", "Stuck"]
@@ -162,7 +164,9 @@ def detect_metadata_columns(columns):
     def first(*tokens):
         return next((c for c in columns if any(t in c.lower() for t in tokens)), None)
 
-    release_candidates = [c for c in columns if any(t in c.lower() for t in ("voe", "erschein", "release"))]
+    release_candidates = [
+        c for c in columns if c.lower() == "et" or any(t in c.lower() for t in ("voe", "erschein", "release"))
+    ]
     release_col = next((c for c in release_candidates if "digital" in c.lower()), None) or (
         release_candidates[0] if release_candidates else None
     )
@@ -248,6 +252,11 @@ def normalize_problem_type(problem_type):
 
 
 def extract_audible_link(metadata):
+    return extract_shop_link(metadata, "audible")
+
+
+def extract_shop_link(metadata, shop):
+    """Sucht in den Metadaten eine URL des Shops (z. B. 'audible', 'spotify')."""
     if not metadata:
         return ""
 
@@ -264,10 +273,10 @@ def extract_audible_link(metadata):
 
         lowered_key = str(key).lower()
         lowered_value = text.lower()
-        if "audible" not in lowered_value:
+        if shop not in lowered_value:
             continue
 
-        if "audible" in lowered_key and any(token in lowered_key for token in ("link", "url", "href")):
+        if shop in lowered_key and any(token in lowered_key for token in ("link", "url", "href")):
             prioritized_values.append(text)
         else:
             fallback_values.append(text)
@@ -573,87 +582,111 @@ def parse_metadata_date(value):
     return None
 
 
-def create_missing_audible_tickets():
-    """Legt Tickets 'Titel nicht online' an, wenn der ET erreicht ist, aber noch kein Audible-Link existiert."""
+def create_missing_portal_tickets():
+    """Legt Tickets 'Titel nicht online' an, wenn der ET erreicht ist, aber der Portal-Link (Audible/Spotify) fehlt.
+
+    Gibt {portal: anzahl} zurueck.
+    """
     meta_conn = get_metadata_connection()
     if not meta_conn:
-        return 0
+        return {}
     try:
         cursor = meta_conn.execute("SELECT * FROM metadata")
-        cols = detect_metadata_columns([d[0] for d in cursor.description])
+        columns = [d[0] for d in cursor.description]
+        cols = detect_metadata_columns(columns)
         if not cols["release"]:
             print("Auto-Tickets: keine ET-Spalte in den Metadaten gefunden.")
-            return 0
+            return {}
         rows = [dict(row) for row in cursor.fetchall()]
     finally:
         meta_conn.close()
+
+    exclusive_col = next((c for c in columns if "exklusiv" in c.lower() or "exclusive" in c.lower()), None)
+    takedown_col = next((c for c in columns if "takedown" in c.lower()), None)
+    no_check_col = next((c for c in columns if c.lower() == "no_check"), None)
 
     today = datetime.now().date()
     newest_release = today - timedelta(days=AUTO_TICKET_GRACE_DAYS)
     oldest_release = today - timedelta(days=AUTO_TICKET_LOOKBACK_DAYS)
 
-    created = []
+    candidates = []
+    for data in rows:
+        isbn = str(data.get(cols["isbn"]) or "").strip()
+        release_date = parse_metadata_date(data.get(cols["release"]))
+        if not isbn or not release_date or not (oldest_release <= release_date <= newest_release):
+            continue
+        if takedown_col and str(data.get(takedown_col) or "").strip().lower() == "ja":
+            continue
+        if no_check_col and str(data.get(no_check_col) or "").strip():
+            continue
+        candidates.append((isbn, release_date, data))
+
+    created = {}
     conn = get_db_connection()
     try:
-        for data in rows:
-            isbn = str(data.get(cols["isbn"]) or "").strip()
-            release_date = parse_metadata_date(data.get(cols["release"]))
-            if not isbn or not release_date or not (oldest_release <= release_date <= newest_release):
-                continue
-            if extract_audible_link(data):
+        for portal, shop in AUTO_TICKET_PORTALS.items():
+            # Ohne Link-Spalte fuer das Portal wuerde jeder Titel als "nicht online" gelten
+            if not any(shop in c.lower() for c in columns):
+                print(f"Auto-Tickets: keine {portal}-Spalte in den Metadaten, {portal} wird uebersprungen.")
                 continue
 
-            existing = conn.execute(
-                """
-                SELECT 1 FROM tickets
-                WHERE isbn = ? AND problem_type = 'Titel nicht online' AND affected_portals LIKE '%Audible%'
-                """,
-                (isbn,),
-            ).fetchone()
-            if existing:
-                continue
+            for isbn, release_date, data in candidates:
+                exclusive = str(data.get(exclusive_col) or "").strip() if exclusive_col else ""
+                if exclusive and exclusive.lower() != portal.lower():
+                    continue
+                if extract_shop_link(data, shop):
+                    continue
 
-            title = (data.get(cols["title"]) if cols["title"] else None) or "Unbekannter Titel"
-            author = (data.get(cols["author"]) if cols["author"] else None) or ""
-            now_iso = datetime.now().isoformat(timespec="seconds")
-            conn.execute(
-                """
-                INSERT INTO tickets
-                (creation_date, problem_type, description, isbn, deadline, initial_contact_date, title, status,
-                 created_by, affected_portals, author, updated_at, assigned_to, batch_label, audible_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    today.isoformat(),
-                    "Titel nicht online",
-                    f"Automatisch angelegt: ET {release_date.strftime('%d.%m.%Y')} erreicht, aber noch kein Audible-Link.",
-                    isbn,
-                    (today + timedelta(days=5)).isoformat(),
-                    release_date.isoformat(),
-                    title,
-                    "offen",
-                    "System",
-                    "Audible",
-                    author,
-                    now_iso,
-                    "",
-                    "",
-                    "",
-                ),
-            )
-            created.append(f"{title} ({isbn}), ET {release_date.strftime('%d.%m.%Y')}")
+                existing = conn.execute(
+                    """
+                    SELECT 1 FROM tickets
+                    WHERE isbn = ? AND problem_type = 'Titel nicht online' AND affected_portals LIKE ?
+                    """,
+                    (isbn, f"%{portal}%"),
+                ).fetchone()
+                if existing:
+                    continue
+
+                title = (data.get(cols["title"]) if cols["title"] else None) or "Unbekannter Titel"
+                author = (data.get(cols["author"]) if cols["author"] else None) or ""
+                conn.execute(
+                    """
+                    INSERT INTO tickets
+                    (creation_date, problem_type, description, isbn, deadline, initial_contact_date, title, status,
+                     created_by, affected_portals, author, updated_at, assigned_to, batch_label, audible_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today.isoformat(),
+                        "Titel nicht online",
+                        f"Automatisch angelegt: ET {release_date.strftime('%d.%m.%Y')} erreicht, aber noch kein {portal}-Link.",
+                        isbn,
+                        (today + timedelta(days=5)).isoformat(),
+                        release_date.isoformat(),
+                        title,
+                        "offen",
+                        "System",
+                        portal,
+                        author,
+                        datetime.now().isoformat(timespec="seconds"),
+                        "",
+                        "",
+                        extract_audible_link(data),
+                    ),
+                )
+                created.setdefault(portal, []).append(f"{title} ({isbn}), ET {release_date.strftime('%d.%m.%Y')}")
         conn.commit()
     finally:
         conn.close()
 
-    if created:
+    for portal, titles in created.items():
         send_teams_card(
-            title=f"{len(created)} Titel nicht auf Audible online",
-            facts=[{"name": "Neue Tickets:", "value": str(len(created))}],
-            text=f"ET seit mindestens {AUTO_TICKET_GRACE_DAYS} Tagen erreicht, aber noch kein Audible-Link:\n"
-            + "\n".join(f"- {c}" for c in created),
+            title=f"{len(titles)} Titel nicht auf {portal} online",
+            facts=[{"name": "Neue Tickets:", "value": str(len(titles))}],
+            text=f"ET seit mindestens {AUTO_TICKET_GRACE_DAYS} Tagen erreicht, aber noch kein {portal}-Link:\n"
+            + "\n".join(f"- {t}" for t in titles),
         )
-    return len(created)
+    return {portal: len(titles) for portal, titles in created.items()}
 
 
 def update_ticket_metadata_refresh(force=False):
@@ -677,9 +710,10 @@ def update_ticket_metadata_refresh(force=False):
         finally:
             conn.close()
         try:
-            auto_count = create_missing_audible_tickets()
-            if auto_count:
-                message = f"{message} {auto_count} Ticket(s) 'Titel nicht online' automatisch angelegt."
+            auto_counts = create_missing_portal_tickets()
+            if auto_counts:
+                summary = ", ".join(f"{count}x {portal}" for portal, count in auto_counts.items())
+                message = f"{message} Automatisch angelegt 'Titel nicht online': {summary}."
         except Exception as e:
             print(f"Fehler bei Auto-Tickets: {e}")
 
