@@ -65,7 +65,8 @@ def fetch_and_update():
         insert_query = f"INSERT INTO metadata ({', '.join(safe_columns)}) VALUES ({placeholders})"
 
         for item in items:
-            cursor.execute(insert_query, [str(item.get(col, "")) for col in columns])
+            # Leere Felder (None) als "" speichern, nicht als Text "None"
+            cursor.execute(insert_query, ["" if item.get(col) is None else str(item.get(col)) for col in columns])
 
         conn.commit()
 

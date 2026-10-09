@@ -605,6 +605,10 @@ def create_missing_portal_tickets():
     takedown_col = next((c for c in columns if "takedown" in c.lower()), None)
     no_check_col = next((c for c in columns if c.lower() == "no_check"), None)
 
+    def field(data, col):
+        value = str(data.get(col) or "").strip() if col else ""
+        return "" if value.lower() in ("none", "null", "nan") else value
+
     today = datetime.now().date()
     newest_release = today - timedelta(days=AUTO_TICKET_GRACE_DAYS)
     oldest_release = today - timedelta(days=AUTO_TICKET_LOOKBACK_DAYS)
@@ -615,9 +619,9 @@ def create_missing_portal_tickets():
         release_date = parse_metadata_date(data.get(cols["release"]))
         if not isbn or not release_date or not (oldest_release <= release_date <= newest_release):
             continue
-        if takedown_col and str(data.get(takedown_col) or "").strip().lower() == "ja":
+        if field(data, takedown_col).lower() == "ja":
             continue
-        if no_check_col and str(data.get(no_check_col) or "").strip():
+        if field(data, no_check_col):
             continue
         candidates.append((isbn, release_date, data))
 
@@ -631,7 +635,7 @@ def create_missing_portal_tickets():
                 continue
 
             for isbn, release_date, data in candidates:
-                exclusive = str(data.get(exclusive_col) or "").strip() if exclusive_col else ""
+                exclusive = field(data, exclusive_col)
                 if exclusive and exclusive.lower() != portal.lower():
                     continue
                 if extract_shop_link(data, shop):
